@@ -3,7 +3,7 @@
 This document distinguishes local/mocked checks from live integrations. Checked on November 9, 2026, on Linux with Python 3.14.5 and Node 25.9.0.
 
 ## Completed
-- Backend: **85 mocked tests passed**, including persistence, decimal precision, totals/overdue, configuration precedence, AI success/error cases, PayPal binding/merchant/amount/currency validation, cancellation, pending/failure, idempotency, concurrent callbacks, uncertain-capture recovery, local/public-origin boundaries, and the display-name checks below.
+- Backend: **94 mocked tests passed**, including persistence, decimal precision, totals/overdue, configuration precedence, AI success/error cases, PayPal binding/merchant/amount/currency validation, cancellation, pending/failure, idempotency, concurrent callbacks, uncertain-capture recovery, local/public-origin boundaries, and the name/draft checks below.
 - `npm run lint`: passed.
 - `npm run build`: passed.
 - Initial MVP live Gemini smoke command: run, **blocked** with `ai_not_configured`. Default model was not changed. Live Gemini and PayPal calls were not rerun for the display-name update; their model/configuration/transport and PayPal payment logic were preserved.
@@ -25,6 +25,12 @@ This document distinguishes local/mocked checks from live integrations. Checked 
 - Additive initialization was tested against a database with existing requests and a saved PayPal order but no settings table; those records were preserved.
 - AI tests verify the saved name is passed to Gemini, a name supplied in the generation request body cannot override it, an unset name prevents upstream calls, and changing the saved setting changes subsequent closings. Server-appended closings use the saved name; conventional invented model signatures (including inline/Markdown sign-offs) are discarded.
 - The expanded Chromium journey verifies the missing-name prompt and disabled generation, saving/updating a name and refreshing to confirm persistence, copying a generated test-fixture message, editing it and copying the exact edited value, cancelling and confirming Clear draft, cleared controls/source/copy feedback, and retention of the saved name after draft clearing. The 15 responsive accessibility scans still pass.
+
+## Client greeting versus freelancer closing regression
+- The greeting is constructed from the request's `client_name`; the closing is constructed independently from the workspace's `freelancer_display_name`. The AI prompt explicitly distinguishes recipient and sender and asks Gemini not to supply either greeting or closing. The UI labels the greeting recipient separately from the sender setting.
+- Regression cases use **Alex Demo** as the saved client and **Taylor Demo** as the saved freelancer, including model responses that wrongly greet the freelancer or an invented recipient. The resulting greeting/closing use the correct independently saved names, and spoofed names in the generation request body cannot override them.
+- Missing, null, empty, and whitespace-only client-name facts all produce exactly `Hello,`, not a freelancer-name fallback. Greeting-only upstream responses remain errors rather than being presented as successful AI messages.
+- Reran the full backend suite, frontend lint, production build, both Chromium tests, and 15 accessibility scans successfully. Live Gemini/PayPal calls were not rerun; their transports, credentials, model, and payment logic were unchanged.
 
 ## Live checks blocked
 No Gemini or PayPal credentials were available in the environment. Therefore **no real Gemini output, PayPal OAuth/order/capture, buyer approval, or complete real-payment journey has been verified**. Mocked tests do not establish live integration success.

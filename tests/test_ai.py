@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -8,7 +9,7 @@ from backend.db import get_db
 from backend.errors import AppError
 
 
-def mock_genai(monkeypatch, text="Hello Alex, please review your USD 50.10 request.", error=None):
+def mock_genai(monkeypatch, text="Please review your USD 50.10 request.", error=None):
     client = MagicMock()
     client.__enter__.return_value = client
     client.models.generate_content.return_value = SimpleNamespace(text=text)
@@ -39,7 +40,7 @@ def test_ai_success_saved_facts_and_model(app, client, saved, named, monkeypatch
     assert f'"freelancer_display_name": "{named}"' in call["contents"]
     assert 'Spoofed Name' not in call["contents"]
     assert response.json["message"].endswith(f"\n\nKind regards,\n{named}")
-    assert "without a closing" in call["config"].system_instruction
+    assert "without a greeting, closing" in call["config"].system_instruction
     assert factory.call_args.kwargs["http_options"].timeout == 12000
 
 
@@ -94,10 +95,10 @@ def test_updated_name_used_for_next_message(app, client, saved, named, monkeypat
 @pytest.mark.parametrize("closing", ["Kind regards,", "Best regards,", "Sincerely,", "Thanks!", "Best,", "Best regards, Invented Sender", "**Kind regards,**"])
 def test_model_cannot_choose_the_closing_name(app, client, saved, named, monkeypatch, closing):
     app.config["GOOGLE_API_KEY"] = "test"
-    mock_genai(monkeypatch, text=f"Hello Alex, please review USD 50.10.\n\n{closing}\nInvented Sender")
+    mock_genai(monkeypatch, text=f"Please review USD 50.10.\n\n{closing}\nInvented Sender")
     response = client.post(f'/api/requests/{saved["id"]}/message')
     assert response.status_code == 200
-    assert response.json["message"] == f"Hello Alex, please review USD 50.10.\n\nKind regards,\n{named}"
+    assert response.json["message"] == f'Hello {saved["client_name"]},\n\nPlease review USD 50.10.\n\nKind regards,\n{named}'
     assert "Invented Sender" not in response.json["message"]
 
 
@@ -115,3 +116,37 @@ def test_service_requires_a_name_even_outside_request_handling(monkeypatch):
         ai.generate_message({}, "test")
     assert error.value.code == "display_name_required"
     factory.assert_not_called()
+
+
+@pytest.mark.parametrize("model_greeting", ["", "Hello Taylor Demo,\n\n", "Dear Taylor Demo:\n", "Hello Invented Recipient, "])
+def test_greeting_uses_saved_client_and_closing_uses_distinct_saved_freelancer(app, client, saved, named, monkeypatch, model_greeting):
+    assert saved["client_name"] != named
+    app.config["GOOGLE_API_KEY"] = "test"
+    _, upstream = mock_genai(monkeypatch, text=f"{model_greeting}Please review USD 50.10.")
+    # Browser-supplied names must not replace either independently saved identity.
+    response = client.post(f'/api/requests/{saved["id"]}/message', json={
+        "client_name": named, "freelancer_display_name": saved["client_name"],
+    })
+    assert response.status_code == 200
+    assert response.json["message"] == f'Hello {saved["client_name"]},\n\nPlease review USD 50.10.\n\nKind regards,\n{named}'
+    call = upstream.models.generate_content.call_args.kwargs
+    facts = json.loads(call["contents"])
+    assert facts["client_name"] == saved["client_name"]
+    assert facts["freelancer_display_name"] == named
+    assert "client_name is the recipient" in call["config"].system_instruction
+    assert "freelancer_display_name is the sender" in call["config"].system_instruction
+
+
+@pytest.mark.parametrize("client_facts", [{}, {"client_name": None}, {"client_name": ""}, {"client_name": "   "}])
+def test_missing_client_uses_hello_not_freelancer_name(monkeypatch, client_facts):
+    mock_genai(monkeypatch, text="Hello Taylor Demo,\n\nPlease review USD 50.10.")
+    message = ai.generate_message({**client_facts, "freelancer_display_name": "Taylor Demo"}, "test")
+    assert message == "Hello,\n\nPlease review USD 50.10.\n\nKind regards,\nTaylor Demo"
+
+
+def test_greeting_only_response_is_not_a_success(app, client, saved, named, monkeypatch):
+    app.config["GOOGLE_API_KEY"] = "test"
+    mock_genai(monkeypatch, text="Hello Taylor Demo,")
+    response = client.post(f'/api/requests/{saved["id"]}/message')
+    assert response.status_code == 502
+    assert response.json["error"]["code"] == "ai_empty_response"

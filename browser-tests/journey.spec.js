@@ -30,6 +30,7 @@ test('persisted request journey, saved display name, AI editing, copying, cleari
   await page.getByLabel('Amount (USD)', { exact: true }).fill('123.45')
   await page.getByRole('button', { name: 'Create payment request' }).click()
   await expect(page.getByRole('heading', { name: 'Browser Demo Client', exact: true })).toBeVisible()
+  await expect(page.getByText('Greeting recipient (client): Browser Demo Client', { exact: true })).toBeVisible()
   const detailsUrl = page.url()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Browser Demo Client', exact: true })).toBeVisible()
@@ -52,7 +53,7 @@ test('persisted request journey, saved display name, AI editing, copying, cleari
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(paymentUrl)
 
   // Deliberately intercepted and visibly labelled test fixture; never a fallback in the app.
-  const generatedDraft = 'EXPLICIT TEST FIXTURE: Please review USD 123.45.\n\nKind regards,\nTaylor Browser Demo'
+  const generatedDraft = 'Hello Browser Demo Client,\n\nEXPLICIT TEST FIXTURE: Please review USD 123.45.\n\nKind regards,\nTaylor Browser Demo'
   await page.route('**/api/requests/*/message', (route) => route.fulfill({
     json: { message: generatedDraft, source: 'test-fixture', model: 'none' },
   }))

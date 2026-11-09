@@ -214,12 +214,13 @@ function AIPanel({ item }) {
   return <section className="card ai-panel"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Your AI payment companion</h2><p className="muted">A starting point, always in your hands.</p></div></div>
     {item.status === 'paid' ? <div className="notice success"><Icon name="paid" />This request is paid. No reminder needed.</div> : <>
       <p>Draft {item.status === 'overdue' ? 'a polite overdue reminder' : 'a short payment request'} from the saved details. Nothing is sent automatically.</p>
+      <p className="muted"><strong>Greeting recipient (client):</strong> {item.client_name?.trim() || 'No client name saved — uses “Hello,”.'}</p>
       {settings.error && <ErrorNotice message={settings.error} retry={settings.reload} />}
       {settings.loading && !settings.data && <p role="status">Loading your display name…</p>}
       {settings.data && <>
         {!savedName && <div className="notice info" role="status">Add your freelancer display name below to generate a signed message.</div>}
         <form className="display-name-form" onSubmit={saveName} aria-label="Freelancer display-name setting">
-          <div className="field"><label htmlFor="freelancer-display-name">Freelancer display name</label><input id="freelancer-display-name" value={nameDraft ?? savedName} onChange={(event) => { setNameDraft(event.target.value); setNameFeedback(''); setNameError('') }} maxLength={120} disabled={savingName || busy} autoComplete="off" aria-describedby="display-name-help" placeholder="The name you want to sign with" /><small id="display-name-help">Saved for this workspace in SQLite. Used exactly as saved in new message closings.</small></div>
+          <div className="field"><label htmlFor="freelancer-display-name">Freelancer display name</label><input id="freelancer-display-name" value={nameDraft ?? savedName} onChange={(event) => { setNameDraft(event.target.value); setNameFeedback(''); setNameError('') }} maxLength={120} disabled={savingName || busy} autoComplete="off" aria-describedby="display-name-help" placeholder="The name you want to sign with" /><small id="display-name-help">Sender name saved for this workspace in SQLite. Used only for the closing, never as the client greeting.</small></div>
           <button className="button secondary" disabled={savingName || busy || !nameDirty} type="submit">{savingName ? 'Saving name…' : 'Save display name'}</button>
           {nameError && <ErrorNotice message={nameError} />}
           {nameFeedback && <p className="name-feedback" role="status">{nameFeedback}</p>}

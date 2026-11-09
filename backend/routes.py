@@ -90,9 +90,9 @@ def message(request_id):
     row = find_request(request_id)
     if row["status"] == "paid":
         raise AppError("already_paid", "This request is paid; no payment reminder is needed.", 409)
-    display_name = require_display_name(get_settings()["freelancer_display_name"])
+    freelancer_display_name = require_display_name(get_settings()["freelancer_display_name"])
     text = ai.generate_message({
-        "freelancer_display_name": display_name,
+        "freelancer_display_name": freelancer_display_name,
         "client_name": row["client_name"], "service_description": row["service_description"],
         "amount": f'{Decimal(row["amount_cents"]) / 100:.2f}', "currency": "USD",
         "due_date": row["due_date"], "today": today().isoformat(),
