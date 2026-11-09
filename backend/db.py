@@ -6,6 +6,12 @@ from pathlib import Path
 from flask import current_app, g
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS workspace_settings (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    freelancer_display_name TEXT NOT NULL CHECK(length(freelancer_display_name) <= 120),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS payment_requests (
     id INTEGER PRIMARY KEY,
     public_token TEXT NOT NULL UNIQUE,

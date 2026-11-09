@@ -116,6 +116,10 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .ai-panel .ai-source { color: #6234AD; font-size: .72rem; margin: 0; overflow-wrap: anywhere; }
 .ai-panel .field { margin-top: 10px; }
 .ai-panel .field label { font-size: .8rem; }
+.display-name-form { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 20px; }
+.display-name-form .field { margin-bottom: 12px; }
+.display-name-form .notice { margin-top: 12px; margin-bottom: 0; }
+.name-feedback { color: var(--muted); font-size: .76rem; margin-top: 10px; }
 .ai-panel textarea { font-size: .87rem; line-height: 1.8; }
 .ai-actions { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; margin-bottom: 20px; }
 .copy-control { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }

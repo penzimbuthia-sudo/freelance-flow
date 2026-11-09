@@ -173,19 +173,38 @@ function NewRequest() {
 }
 
 function CopyButton({ text, label = 'Copy', className = 'secondary' }) {
-  const [feedback, setFeedback] = useState('')
+  const [feedback, setFeedback] = useState(null)
   async function copy() {
-    try { await navigator.clipboard.writeText(text); setFeedback('Copied to clipboard.') }
-    catch { setFeedback('Clipboard unavailable. Select the text and copy it manually.') }
+    try { await navigator.clipboard.writeText(text); setFeedback({ text, message: 'Copied to clipboard.' }) }
+    catch { setFeedback({ text, message: 'Clipboard unavailable. Select the text and copy it manually.' }) }
   }
-  return <div className="copy-control"><button className={`button ${className}`} onClick={copy} disabled={!text}><Icon name="copy" size={17} />{label}</button>{feedback && <small className="copy-feedback" role="status">{feedback}</small>}</div>
+  return <div className="copy-control"><button className={`button ${className}`} onClick={copy} disabled={!text}><Icon name="copy" size={17} />{label}</button>{feedback?.text === text && <small className="copy-feedback" role="status">{feedback.message}</small>}</div>
 }
 
 function AIPanel({ item }) {
+  const settings = useResource('/settings')
+  const [nameDraft, setNameDraft] = useState(null)
+  const [savingName, setSavingName] = useState(false)
+  const [nameError, setNameError] = useState('')
+  const [nameFeedback, setNameFeedback] = useState('')
   const [message, setMessage] = useState('')
   const [source, setSource] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const savedName = settings.data?.settings.freelancer_display_name || ''
+  const nameDirty = nameDraft !== null && nameDraft !== savedName
+  async function saveName(event) {
+    event.preventDefault()
+    if (savingName || busy) return
+    setSavingName(true); setNameError(''); setNameFeedback('')
+    try {
+      const result = await api('/settings', { method: 'PUT', body: JSON.stringify({ freelancer_display_name: nameDraft ?? savedName }) })
+      await settings.reload()
+      setNameDraft(null)
+      setNameFeedback(result.settings.freelancer_display_name ? 'Display name saved. New messages use this name; existing drafts are unchanged.' : 'Display name cleared. Add a name before generating a message.')
+    } catch (error) { setNameError(error.message) }
+    finally { setSavingName(false) }
+  }
   async function generate() {
     setBusy(true); setError('')
     try { const data = await post(`/requests/${item.id}/message`); setMessage(data.message); setSource(data.source === 'gemini' ? `Real Gemini output · ${data.model}` : 'Explicit test fixture · not real AI output') }
@@ -195,11 +214,23 @@ function AIPanel({ item }) {
   return <section className="card ai-panel"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Your AI payment companion</h2><p className="muted">A starting point, always in your hands.</p></div></div>
     {item.status === 'paid' ? <div className="notice success"><Icon name="paid" />This request is paid. No reminder needed.</div> : <>
       <p>Draft {item.status === 'overdue' ? 'a polite overdue reminder' : 'a short payment request'} from the saved details. Nothing is sent automatically.</p>
-      <button className="button ai-button" onClick={generate} disabled={busy || !!message}><Icon name="ai" size={18} />{busy ? 'Asking Gemini…' : 'Generate payment message'}</button>
+      {settings.error && <ErrorNotice message={settings.error} retry={settings.reload} />}
+      {settings.loading && !settings.data && <p role="status">Loading your display name…</p>}
+      {settings.data && <>
+        {!savedName && <div className="notice info" role="status">Add your freelancer display name below to generate a signed message.</div>}
+        <form className="display-name-form" onSubmit={saveName} aria-label="Freelancer display-name setting">
+          <div className="field"><label htmlFor="freelancer-display-name">Freelancer display name</label><input id="freelancer-display-name" value={nameDraft ?? savedName} onChange={(event) => { setNameDraft(event.target.value); setNameFeedback(''); setNameError('') }} maxLength={120} disabled={savingName || busy} autoComplete="off" aria-describedby="display-name-help" placeholder="The name you want to sign with" /><small id="display-name-help">Saved for this workspace in SQLite. Used exactly as saved in new message closings.</small></div>
+          <button className="button secondary" disabled={savingName || busy || !nameDirty} type="submit">{savingName ? 'Saving name…' : 'Save display name'}</button>
+          {nameError && <ErrorNotice message={nameError} />}
+          {nameFeedback && <p className="name-feedback" role="status">{nameFeedback}</p>}
+          {nameDirty && <p className="name-feedback">Save your display name before generating a message.</p>}
+        </form>
+      </>}
+      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Asking Gemini…' : 'Generate payment message'}</button>
       {error && <ErrorNotice message={error} />}
       {source && <p className="ai-source">{source} · editable draft</p>}
-      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea id="ai-message" rows={7} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Your AI-generated message will appear here. You can also write your own." /></div>
-      <div className="ai-actions"><CopyButton text={message} label="Copy message" /><button className="text-button" disabled={busy || !message} onClick={() => { if (window.confirm('Discard this draft so you can generate another?')) { setMessage(''); setSource('') } }}>Clear draft</button></div>
+      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => setMessage(event.target.value)} placeholder="Your AI-generated message will appear here. You can also write your own." /></div>
+      <div className="ai-actions"><CopyButton text={message} label="Copy message" /><button className="text-button" disabled={busy || !message} onClick={() => { if (window.confirm('Discard this draft so you can generate another?')) { setMessage(''); setSource(''); setError('') } }}>Clear draft</button></div>
       <small className="muted">Check every fact before sharing. Edits stay in this tab only. Copy the payment link separately.</small>
     </>}
   </section>

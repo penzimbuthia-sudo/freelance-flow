@@ -2,15 +2,20 @@
 from datetime import timedelta
 
 from backend.ai import generate_message
-from backend.config import configuration
+from backend import create_app
 from backend.errors import AppError
 from backend.models import today
+from backend.settings import get_settings
 
 
 def main():
-    config = configuration()
+    app = create_app()
+    config = app.config
+    with app.app_context():
+        display_name = get_settings()["freelancer_display_name"]
     try:
         text = generate_message({
+            "freelancer_display_name": display_name,
             "client_name": "Alex Demo", "service_description": "fictional website design",
             "amount": "50.00", "currency": "USD", "payment_status": "unpaid",
             "due_date": (today() - timedelta(days=1)).isoformat(),

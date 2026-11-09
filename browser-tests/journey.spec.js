@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
-test('persisted request journey, validation, AI failure, editing, copying, and client page', async ({ page, context }) => {
+test('persisted request journey, saved display name, AI editing, copying, clearing, and client page', async ({ page, context, request }) => {
   const consoleErrors = []
   const failedRequests = []
   const unexpectedResponses = []
@@ -17,6 +17,7 @@ test('persisted request journey, validation, AI failure, editing, copying, and c
     )) unexpectedResponses.push(`${response.status()} ${response.url()}`)
   })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await request.put('/api/settings', { data: { freelancer_display_name: '' } })
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Your money, in view.' })).toBeVisible()
   await page.getByRole('link', { name: 'New Payment Request', exact: true }).first().click()
@@ -32,6 +33,14 @@ test('persisted request journey, validation, AI failure, editing, copying, and c
   const detailsUrl = page.url()
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Browser Demo Client', exact: true })).toBeVisible()
+  await expect(page.getByText('Add your freelancer display name below', { exact: false })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Generate payment message' })).toBeDisabled()
+  await page.getByLabel('Freelancer display name', { exact: true }).fill('Taylor Browser Demo')
+  await expect(page.getByRole('button', { name: 'Generate payment message' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Save display name', exact: true }).click()
+  await expect(page.getByText('Display name saved.', { exact: false })).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Freelancer display name', { exact: true })).toHaveValue('Taylor Browser Demo')
   await page.getByRole('button', { name: 'Generate payment message' }).click()
   await expect(page.getByRole('alert')).toContainText('GOOGLE_API_KEY')
   await expect(page.getByText('Real Gemini output', { exact: false })).toHaveCount(0)
@@ -43,14 +52,38 @@ test('persisted request journey, validation, AI failure, editing, copying, and c
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(paymentUrl)
 
   // Deliberately intercepted and visibly labelled test fixture; never a fallback in the app.
+  const generatedDraft = 'EXPLICIT TEST FIXTURE: Please review USD 123.45.\n\nKind regards,\nTaylor Browser Demo'
   await page.route('**/api/requests/*/message', (route) => route.fulfill({
-    json: { message: 'EXPLICIT TEST FIXTURE: Please review USD 123.45.', source: 'test-fixture', model: 'none' },
+    json: { message: generatedDraft, source: 'test-fixture', model: 'none' },
   }))
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Clear draft' }).click()
   await page.getByRole('button', { name: 'Generate payment message' }).click()
   await expect(page.getByText('Explicit test fixture · not real AI output', { exact: false })).toBeVisible()
-  await expect(page.getByLabel('Review and edit your message')).toHaveValue('EXPLICIT TEST FIXTURE: Please review USD 123.45.')
+  await expect(page.getByLabel('Review and edit your message')).toHaveValue(generatedDraft)
+  await page.getByRole('button', { name: 'Copy message', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(generatedDraft)
+  const editedDraft = 'Edited browser-test draft: thank you for reviewing USD 123.45.\n\nKind regards,\nTaylor Browser Demo'
+  await page.getByLabel('Review and edit your message').fill(editedDraft)
+  await expect(page.locator('.ai-panel').getByText('Copied to clipboard.', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Copy message', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(editedDraft)
+  page.once('dialog', (dialog) => dialog.dismiss())
+  await page.getByRole('button', { name: 'Clear draft', exact: true }).click()
+  await expect(page.getByLabel('Review and edit your message')).toHaveValue(editedDraft)
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Clear draft', exact: true }).click()
+  await expect(page.getByLabel('Review and edit your message')).toHaveValue('')
+  await expect(page.getByRole('button', { name: 'Copy message', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Clear draft', exact: true })).toBeDisabled()
+  await expect(page.locator('.ai-panel').getByText('Copied to clipboard.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Explicit test fixture · not real AI output', { exact: false })).toHaveCount(0)
+  await expect(page.getByLabel('Freelancer display name', { exact: true })).toHaveValue('Taylor Browser Demo')
+  await page.getByLabel('Freelancer display name', { exact: true }).fill('Updated Browser Demo')
+  await page.getByRole('button', { name: 'Save display name', exact: true }).click()
+  await expect(page.getByText('Display name saved.', { exact: false })).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Freelancer display name', { exact: true })).toHaveValue('Updated Browser Demo')
   await page.unroute('**/api/requests/*/message')
 
   await page.getByRole('link', { name: 'Payment requests', exact: true }).first().click()

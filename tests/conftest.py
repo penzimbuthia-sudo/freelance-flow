@@ -29,6 +29,13 @@ def saved(client):
     }).json["request"]
 
 
+@pytest.fixture
+def named(client):
+    name = "Taylor Demo"
+    assert client.put("/api/settings", json={"freelancer_display_name": name}).status_code == 200
+    return name
+
+
 def public_path(saved):
     return "/api/public/requests/" + saved["payment_url"].rsplit("/", 1)[1]
 

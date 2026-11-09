@@ -67,7 +67,9 @@ Create a key through Google AI Studio with access to the configured model. Prese
 .venv/bin/python test_ai.py
 ```
 
-This is a **live**, noninteractive smoke test using fictional facts. It prints real output only after a successful Gemini response and exits nonzero when blocked/failed. Request handling uses a reusable service, 12-second per-attempt HTTP timeout and at most two attempts. No raw prompts, keys, or upstream exception bodies are logged. AI is prompted using saved facts with untrusted text separated from instructions, but human review is still essential: generated text is not guaranteed factually correct. Paid requests cannot generate unnecessary reminders. Edited drafts are tab-local and not persisted.
+First save a **Freelancer display name** in an unpaid request's AI panel. The name is a single-workspace setting stored in SQLite, not an environment variable or hardcoded identity. Restart Flask after upgrading so its additive schema initialization creates `workspace_settings` without replacing requests or payment attempts. A missing name prompts you to add it and blocks AI generation; unsaved name edits must be saved first. Names are trimmed, limited to 120 characters, and must be a single line without control characters. Clearing and saving the name disables generation again. Changing the setting applies to new messages, not existing drafts.
+
+The smoke command above is a **live**, noninteractive test using fictional request facts and your saved display name from the same `DATABASE_PATH` as the app. It prints real output only after a successful Gemini response and exits nonzero when blocked/failed. Request handling uses a reusable service, 12-second per-attempt HTTP timeout and at most two attempts. No raw prompts, keys, or upstream exception bodies are logged. Gemini receives the saved name as data and is asked for body-only text; the server appends `Kind regards,` followed by the exact saved name, defensively removing conventional model-supplied sign-offs. Human review is still essential: generated body text is not guaranteed factually correct. Paid requests cannot generate unnecessary reminders. Generated messages appear in an editable textarea; **Copy message** copies its current edited value and **Clear draft** clears the message and source label after confirmation. Edited drafts are tab-local and not persisted; the display-name setting persists across refreshes and restarts.
 
 ### PayPal sandbox seller and buyer
 
@@ -83,7 +85,7 @@ The integration uses the current official [React SDK v6 reference](https://devel
 ## Reproduce the end-to-end demo
 
 1. Create `Alex Demo`, `Fictional website design`, `50.00`, with a due date today or in the future.
-2. Open the saved details, select **Generate payment message**. A successful response is labelled **Real Gemini output** and shows the configured model. Edit it and use **Copy message**; copy the payment URL separately. Nothing is sent.
+2. Open the saved details, enter your **Freelancer display name**, and select **Save display name** if not already configured. Select **Generate payment message**. A successful response is labelled **Real Gemini output** and shows the configured model; its closing uses the saved name. Edit it and use **Copy message**; copy the payment URL separately. Nothing is sent.
 3. Open **Open client page**. Check the amount and sandbox warning. Pay as the separate sandbox buyer.
 4. Wait for **Payment confirmed**, then return to details/dashboard. The dashboard refreshes when the tab regains focus; **Refresh status** is also available. Confirm paid increased and outstanding decreased; refresh the browser to demonstrate persistence.
 5. If checkout is cancelled, the request stays unpaid. If capture is uncertain, use **Check payment status** before trying to pay again. This also works after refreshing the client page when an active order is stored.
@@ -111,7 +113,7 @@ Linux may need `npx playwright install-deps chromium` (administrator approval/sy
 - `backend/routes.py`, `ai.py`, `paypal.py`, `payments.py`: JSON routes, Gemini adapter, sandbox REST adapter, persisted payment state machine.
 - `tests/`: focused mocked backend tests. `browser-tests/`: real Chromium checks of the local app, not live integrations.
 
-Management (local only): `GET /api/health`, `GET/POST /api/requests`, `GET /api/requests/:id`, `GET /api/dashboard`, `POST /api/requests/:id/message`.
+Management (local only): `GET /api/health`, `GET/POST /api/requests`, `GET /api/requests/:id`, `GET /api/dashboard`, `POST /api/requests/:id/message`, `GET/PUT /api/settings`. Settings use `{"freelancer_display_name":"Your chosen display name"}`; an empty string clears the name. The name is not added to public payment-page responses.
 
 Public: `GET /api/public/config`, `GET /api/public/requests/:token`, and `POST /api/public/requests/:token/orders`, `/capture` (`{"order_id":"…"}`), `/cancel` (same body). JSON errors consistently use `{"error":{"code":"…","message":"…"}}`.
 

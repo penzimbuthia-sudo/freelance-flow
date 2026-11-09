@@ -8,6 +8,7 @@ from .db import get_db, now
 from .errors import AppError
 from .models import create_request, find_request, serialize, status, today
 from .security import require_local_management
+from .settings import get_settings, require_display_name, save_settings
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -53,6 +54,16 @@ def list_requests():
     return jsonify({"requests": [serialize(row) for row in rows]})
 
 
+@api.get("/settings")
+def workspace_settings():
+    return jsonify({"settings": get_settings()})
+
+
+@api.put("/settings")
+def update_workspace_settings():
+    return jsonify({"settings": save_settings(body())})
+
+
 @api.post("/requests")
 def new_request():
     return jsonify({"request": serialize(create_request(body()))}), 201
@@ -79,7 +90,9 @@ def message(request_id):
     row = find_request(request_id)
     if row["status"] == "paid":
         raise AppError("already_paid", "This request is paid; no payment reminder is needed.", 409)
+    display_name = require_display_name(get_settings()["freelancer_display_name"])
     text = ai.generate_message({
+        "freelancer_display_name": display_name,
         "client_name": row["client_name"], "service_description": row["service_description"],
         "amount": f'{Decimal(row["amount_cents"]) / 100:.2f}', "currency": "USD",
         "due_date": row["due_date"], "today": today().isoformat(),
