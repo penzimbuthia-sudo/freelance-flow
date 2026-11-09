@@ -42,7 +42,7 @@
 .card-heading p { margin-top: 5px; font-size: .8rem; }
 .text-link { display: inline-flex; align-items: center; gap: 5px; font-size: .8rem; font-weight: 600; text-decoration: none; min-height: 40px; }
 .text-link:hover, .client-link:hover { text-decoration: underline; }
-.table-scroll { overflow-x: auto; }
+.table-scroll { position: relative; overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; text-align: left; font-size: .85rem; }
 th { font-weight: 500; color: var(--muted); font-size: .72rem; background: #F7F6F2; padding: 12px 24px; white-space: nowrap; border-block: 1px solid var(--border); }
 td { padding: 19px 24px; border-bottom: 1px solid #E6E9EF; vertical-align: middle; }

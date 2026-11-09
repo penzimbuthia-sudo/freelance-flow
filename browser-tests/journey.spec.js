@@ -4,8 +4,18 @@ import AxeBuilder from '@axe-core/playwright'
 test('persisted request journey, validation, AI failure, editing, copying, and client page', async ({ page, context }) => {
   const consoleErrors = []
   const failedRequests = []
+  const unexpectedResponses = []
   page.on('pageerror', (error) => consoleErrors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !/status of (400|503)/.test(message.text())) consoleErrors.push(message.text())
+  })
   page.on('requestfailed', (request) => failedRequests.push(request.url()))
+  page.on('response', (response) => {
+    if (response.status() >= 400 && !(
+      (response.status() === 400 && response.url().endsWith('/api/requests')) ||
+      (response.status() === 503 && /\/api\/requests\/\d+\/message$/.test(response.url()))
+    )) unexpectedResponses.push(`${response.status()} ${response.url()}`)
+  })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Your money, in view.' })).toBeVisible()
@@ -63,7 +73,7 @@ test('persisted request journey, validation, AI failure, editing, copying, and c
       await page.goto(url)
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
       await expect(page.getByRole('status').filter({ hasText: 'Loading saved records' })).toHaveCount(0)
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name} at ${width}px must not overflow the viewport`).toBe(true)
       const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
       expect(accessibility.violations, `${name} at ${width}px`).toEqual([])
       await page.screenshot({ path: test.info().outputPath(`${name}-${width}.png`), fullPage: true })
@@ -71,6 +81,7 @@ test('persisted request journey, validation, AI failure, editing, copying, and c
   }
   expect(consoleErrors).toEqual([])
   expect(failedRequests).toEqual([])
+  expect(unexpectedResponses).toEqual([])
 })
 
 test('keyboard navigation exposes skip link and visible focus', async ({ page }) => {

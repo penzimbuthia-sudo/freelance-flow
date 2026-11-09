@@ -21,7 +21,12 @@ def boundaries():
         origin = request.headers.get("Origin")
         base = urlsplit(current_app.config["PUBLIC_BASE_URL"])
         allowed_origin = f"{base.scheme}://{base.netloc}"
-        if origin and origin != allowed_origin:
+        allowed_origins = {allowed_origin}
+        if not request.path.startswith("/api/public/"):
+            # Local management remains usable through an SSH localhost tunnel
+            # even when shared payment links use an approved public origin.
+            allowed_origins.add(request.host_url.rstrip("/"))
+        if origin and origin not in allowed_origins:
             raise AppError("origin_forbidden", "This request origin is not allowed.", 403)
 
 

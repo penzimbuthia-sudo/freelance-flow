@@ -61,6 +61,16 @@ def test_public_domain_does_not_expose_management(app):
     assert browser.get("/api/public/config", headers={"Host": "demo.example"}).status_code == 200
 
 
+def test_local_management_origin_with_public_payment_base(app, client):
+    app.config["PUBLIC_BASE_URL"] = "https://payments.example.com"
+    response = client.post("/api/requests", headers={"Origin": "http://localhost"}, json={
+        "client_name": "SSH Demo", "service_description": "Fictional localhost management",
+        "amount": "1.00", "due_date": "2030-01-01",
+    })
+    assert response.status_code == 201
+    assert response.json["request"]["payment_url"].startswith("https://payments.example.com/pay/")
+
+
 def test_readiness_and_public_minimization(client, saved):
     health = client.get("/api/health").json
     assert health["status"] == "ok"
