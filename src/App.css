@@ -130,6 +130,12 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .name-feedback { color: var(--muted); font-size: .76rem; margin-top: 10px; }
 .ai-panel textarea { font-size: .87rem; line-height: 1.8; }
 .ai-actions { display: flex; justify-content: space-between; gap: 15px; align-items: flex-start; margin-bottom: 20px; }
+.confirm-dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--border); border-radius: 13px; background: var(--card); color: var(--text); box-shadow: 0 18px 60px #0F2D5B33; }
+.confirm-dialog::backdrop { background: #0F2D5B80; }
+.confirm-dialog h2 { margin-bottom: 10px; }
+.confirm-dialog p { color: var(--muted); font-size: .9rem; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+@media (max-width: 600px) { .confirm-dialog { padding: 20px; } .confirm-dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .confirm-dialog-actions .button { padding-inline: 10px; } }
 .copy-control { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
 .copy-feedback { color: var(--muted); font-size: .72rem; max-width: 220px; }
 .client-page { min-height: 100vh; }

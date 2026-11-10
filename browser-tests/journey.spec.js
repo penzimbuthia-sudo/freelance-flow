@@ -57,8 +57,8 @@ test('persisted request journey, saved display name, AI editing, copying, cleari
   await page.route('**/api/requests/*/message', (route) => route.fulfill({
     json: { message: generatedDraft, source: 'test-fixture', model: 'none' },
   }))
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Clear draft' }).click()
+  await page.getByRole('dialog', { name: 'Clear this draft?' }).getByRole('button', { name: 'Clear draft', exact: true }).click()
   await page.getByRole('button', { name: 'Generate payment message' }).click()
   await expect(page.getByText('Explicit test fixture · not real AI output', { exact: false })).toBeVisible()
   await expect(page.getByLabel('Review and edit your message')).toHaveValue(generatedDraft)
@@ -69,11 +69,11 @@ test('persisted request journey, saved display name, AI editing, copying, cleari
   await expect(page.locator('.ai-panel').getByText('Copied to clipboard.', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Copy message', exact: true }).click()
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(editedDraft)
-  page.once('dialog', (dialog) => dialog.dismiss())
   await page.getByRole('button', { name: 'Clear draft', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Clear this draft?' }).getByRole('button', { name: 'Keep draft' }).click()
   await expect(page.getByLabel('Review and edit your message')).toHaveValue(editedDraft)
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Clear draft', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Clear this draft?' }).getByRole('button', { name: 'Clear draft', exact: true }).click()
   await expect(page.getByLabel('Review and edit your message')).toHaveValue('')
   await expect(page.getByRole('button', { name: 'Copy message', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Clear draft', exact: true })).toBeDisabled()

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PayPalProvider, PayPalOneTimePaymentButton } from '@paypal/react-paypal-js/sdk-v6'
+import ConfirmDialog from './ConfirmDialog'
 import './App.css'
 
 const money = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
@@ -193,6 +194,9 @@ function AIPanel({ item, guidance }) {
   const [draftStatus, setDraftStatus] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const clearTriggerRef = useRef(null)
+  const draftRef = useRef(null)
   const savedName = settings.data?.settings.freelancer_display_name || ''
   const nameDirty = nameDraft !== null && nameDraft !== savedName
   const staleDraft = !!message && draftStatus !== null && draftStatus !== item.status
@@ -215,6 +219,11 @@ function AIPanel({ item, guidance }) {
     catch (error) { setError(error.message) }
     finally { setBusy(false) }
   }
+  function clearDraft() {
+    // Drafts are tab-local; clearing does not write settings or call an API.
+    setMessage(''); setSource(''); setError(''); setDraftStatus(null)
+    setConfirmClear(false)
+  }
   return <section className="card ai-panel" aria-label="Explain this payment"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Explain this payment</h2><p className="muted">Saved facts. One next step. An AI-assisted draft.</p></div></div>
       {guidance && <div className={`payment-explanation ${item.status === 'paid' ? 'confirmed' : 'attention'}`}><h3><Icon name={item.status === 'paid' ? 'paid' : 'pending'} size={17} />What’s happening</h3><p>{guidance.explanation}</p><h3>Recommended next action</h3><p>{guidance.next_action}</p><small>Facts calculated by the app · Africa/Nairobi (UTC+3)</small></div>}
       <h3>Suggested message</h3>
@@ -236,8 +245,9 @@ function AIPanel({ item, guidance }) {
       {error && <ErrorNotice message={error} retry={!message && !busy && !savingName && !!savedName && !nameDirty ? generate : undefined} />}
       {staleDraft && <div className="notice attention" role="status">Payment status changed since this draft was written. Clear it to generate current guidance, or edit it before copying.</div>}
       {source && <p className="ai-source">{source} · editable draft</p>}
-      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => { setMessage(event.target.value); setDraftStatus(item.status) }} placeholder="Your AI-assisted message will appear here. You can also write your own." /></div>
-      <div className="ai-actions"><CopyButton text={staleDraft ? '' : message} label="Copy message" /><button className="text-button" disabled={busy || !message} onClick={() => { if (window.confirm('Discard this draft so you can generate another?')) { setMessage(''); setSource(''); setError(''); setDraftStatus(null) } }}>Clear draft</button></div>
+      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea ref={draftRef} id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => { setMessage(event.target.value); setDraftStatus(item.status) }} placeholder="Your AI-assisted message will appear here. You can also write your own." /></div>
+      <div className="ai-actions"><CopyButton text={staleDraft ? '' : message} label="Copy message" /><button ref={clearTriggerRef} className="text-button" disabled={busy || !message} onClick={() => setConfirmClear(true)}>Clear draft</button></div>
+      {confirmClear && <ConfirmDialog title="Clear this draft?" description="This will remove your current message, including any edits." cancelLabel="Keep draft" confirmLabel="Clear draft" onCancel={() => setConfirmClear(false)} onConfirm={clearDraft} returnFocusRef={clearTriggerRef} fallbackFocusRef={draftRef} />}
       <small className="muted">Check every fact before sharing. Edits stay in this tab only. Copy the payment link separately.</small>
   </section>
 }
