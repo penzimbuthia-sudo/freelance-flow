@@ -285,7 +285,7 @@ function ClientPayment() {
     finally { setBusy(false); await reload() }
   }
   return <div className="client-page"><a className="skip-link" href="#main">Skip to content</a><header className="client-header"><Brand /><span className="sandbox-label">PayPal sandbox</span></header><main className="client-main" id="main" tabIndex="-1">
-    <div className="client-intro"><p className="eyebrow">{item?.status === 'paid' ? 'SERVER-VERIFIED PAYMENT DETAILS' : 'A SIMPLE, SECURE CHECKOUT WITH PAYPAL'}</p><h1>{item?.status === 'paid' ? 'Your payment confirmation' : 'Your payment request'}</h1><p className="muted">{item?.status === 'paid' ? 'Keep a copy of your sandbox payment details.' : 'Review the details below before paying.'}</p></div>
+    <div className="client-intro"><p className="eyebrow">{item?.confirmation ? 'SERVER-VERIFIED PAYMENT DETAILS' : 'PAYPAL SANDBOX PAYMENT DETAILS'}</p><h1>{item?.confirmation ? 'Your payment confirmation' : item?.status === 'paid' ? 'Your payment record' : 'Your payment request'}</h1><p className="muted">{item?.confirmation ? 'Keep a copy of your sandbox payment details.' : item?.status === 'paid' ? 'No further payment is requested.' : 'Review the details below before paying.'}</p></div>
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !item ? <Loading /> : item && <section className="card checkout-card">
       {item.status === 'paid' ? item.confirmation ? <PaymentConfirmation confirmation={item.confirmation} /> : <div className="notice info">This request is recorded as paid, but verified confirmation details are unavailable. Contact the freelancer; do not pay again.</div> : <>

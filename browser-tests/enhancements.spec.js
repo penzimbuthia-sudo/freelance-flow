@@ -136,6 +136,19 @@ test('context guidance, persisted activity, verified confirmation and print — 
     const publicPdf = await page.pdf({ path: test.info().outputPath('public-confirmation.pdf'), format: 'A4', displayHeaderFooter: false })
     expect((publicPdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length).toBe(1)
     await page.emulateMedia({ media: 'screen' })
+    // A paid flag without the server's capture evidence is not a confirmation.
+    await page.route('**/api/public/requests/*', async (route) => {
+      const response = await route.fetch()
+      const data = await response.json()
+      data.request.confirmation = null
+      await route.fulfill({ response, json: data })
+    })
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Your payment record', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Payment confirmed', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Print confirmation' })).toHaveCount(0)
+    await expect(page.getByText('SERVER-VERIFIED PAYMENT DETAILS', { exact: true })).toHaveCount(0)
+    await page.unroute('**/api/public/requests/*')
     await page.goto('/pay/invalid-token?success=true')
     await expect(page.getByRole('alert')).toContainText('Payment request not found')
     await expect(page.getByRole('heading', { name: 'Payment confirmed', exact: true })).toHaveCount(0)
