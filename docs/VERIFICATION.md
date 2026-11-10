@@ -1,5 +1,7 @@
 # Verification record
 
+**Enhancement sprint update (November 10):** rebuilt in conventional commits after restoring the pre-enhancement baseline. **155 backend tests**, lint/build, and **3 Chromium tests** pass, including guidance, persisted activity and confirmation/print. Two genuine Gemini UI calls and the existing paid confirmation were verified on a separate local server; existing requests/attempts/settings were unchanged. No new live PayPal capture was attempted. See [full evidence, limitations, migration and manual checklist](ENHANCEMENTS.md). Earlier counts and missing-credentials statements below are historical.
+
 **November 10 update:** the live PayPal pre-login failure was reproduced and its stale-order reuse cause fixed. 110 backend tests, lint, build, and both browser regressions pass. Actual sandbox OAuth/create/GET and popup buyer-login rendering were verified, but buyer authentication/approval/capture were not. See [PayPal diagnosis and exact retry steps](PAYPAL_CHECKOUT_DEBUG.md). The November 9 results below are historical; their missing-credentials limitation no longer describes the PayPal checks above.
 
 This document distinguishes local/mocked checks from live integrations. Checked on November 9, 2026, on Linux with Python 3.14.5 and Node 25.9.0.

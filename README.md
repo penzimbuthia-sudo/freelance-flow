@@ -87,9 +87,9 @@ For the verified stale-order pre-login failure, safe response diagnostics, and e
 ## Reproduce the end-to-end demo
 
 1. Create `Alex Demo`, `Fictional website design`, `50.00`, with a due date today or in the future.
-2. Open the saved details, enter your **Freelancer display name**, and select **Save display name** if not already configured. Select **Generate payment message**. A successful response is labelled **Real Gemini output** and shows the configured model; its closing uses the saved name. Edit it and use **Copy message**; copy the payment URL separately. Nothing is sent.
+2. Open the saved details and review **Explain this payment**: canonical facts and one next action. Save your **Freelancer display name**, then select **Generate payment message**. A successful response is labelled **AI-assisted wording selection** with the configured Gemini model: the model selects an approved wording style and the app adds all payment facts, the client greeting and your signature. Edit and **Copy message**; copy the payment URL separately. Nothing is sent.
 3. Open **Open client page**. Check the amount and sandbox warning. Pay as the separate sandbox buyer.
-4. Wait for **Payment confirmed**, then return to details/dashboard. The dashboard refreshes when the tab regains focus; **Refresh status** is also available. Confirm paid increased and outstanding decreased; refresh the browser to demonstrate persistence.
+4. Wait for **Payment confirmed**. Review its sandbox label, service, amount, freelancer name, confirmed time and capture reference. **Print confirmation** opens browser printing; turn off browser Headers and footers to omit the private page URL. Return to details/dashboard, refresh, inspect the recorded activity and persistent totals, then generate a thank-you rather than another reminder.
 5. If checkout is cancelled, the request stays unpaid. If capture is uncertain, use **Check payment status** before trying to pay again. This also works after refreshing the client page when an active order is stored.
 
 See [the under-three-minute demo script](docs/DEMO.md) and [submission checklist](docs/SUBMISSION_CHECKLIST.md).
@@ -104,7 +104,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Linux may need `npx playwright install-deps chromium` (administrator approval/system packages required). Browser checks start their own non-debug Flask server on port 5001, use an isolated ignored database and **blank integration keys**, and check the built application at 375/768/1440px, WCAG A/AA with axe, navigation, validation, persistence, copying, and missing-configuration states. One intercepted AI fixture is visibly labelled **not real AI output**. Screenshots/traces go to ignored `test-results/`. Tests never contact PayPal or Gemini. Backend tests mock external APIs, including the HTTP transport. See [verification notes](docs/VERIFICATION.md) for actual results and unverified checks.
+Linux may need `npx playwright install-deps chromium` (administrator approval/system packages required). Browser checks start an isolated test-only Flask process on port 5001 with an ignored database and **blank real integration keys**. Mock providers exercise guidance, errors/retries, cancellation/capture, persisted activity, confirmation and printing; fixture drafts are visibly labelled **not real AI output**. Tests also cover 375/768/1440px layouts, axe accessibility, keyboard navigation, editing/copying and unconfigured states. Screenshots/PDFs/traces go to ignored `test-results/`. These regressions never contact PayPal or Gemini. See [enhancement verification and manual checks](docs/ENHANCEMENTS.md) for the separate genuine Gemini/running-workspace checks and their limitations.
 
 `npm audit` currently reports four moderate **development-tooling** advisories through ESLint's minimatch dependency. No production dependency vulnerabilities were reported. No forced dependency downgrade was applied; do not run `npm audit fix --force` blindly.
 
@@ -115,11 +115,13 @@ Linux may need `npx playwright install-deps chromium` (administrator approval/sy
 - `backend/routes.py`, `ai.py`, `paypal.py`, `payments.py`: JSON routes, Gemini adapter, sandbox REST adapter, persisted payment state machine.
 - `tests/`: focused mocked backend tests. `browser-tests/`: real Chromium checks of the local app, not live integrations.
 
-Management (local only): `GET /api/health`, `GET/POST /api/requests`, `GET /api/requests/:id`, `GET /api/dashboard`, `POST /api/requests/:id/message`, `GET/PUT /api/settings`. Settings use `{"freelancer_display_name":"Your chosen display name"}`; an empty string clears the name. The name is not added to public payment-page responses.
+Management (local only): `GET /api/health`, `GET/POST /api/requests`, `GET /api/requests/:id`, `GET /api/dashboard`, `POST /api/requests/:id/message`, `GET/PUT /api/settings`. Details include factual guidance, recorded activity and verified confirmation when available. Message generation accepts `{"context_aware":true}` for safe AI-assisted wording (including paid thank-yous); the legacy message behavior is retained for compatibility. Settings use `{"freelancer_display_name":"Your chosen display name"}`; an empty string clears the name. The display name is exposed publicly only inside a verified paid confirmation; client identity and settings endpoints remain private.
 
 Public: `GET /api/public/config`, `GET /api/public/requests/:token`, and `POST /api/public/requests/:token/orders`, `/capture` (`{"order_id":"…"}`), `/cancel` (same body). JSON errors consistently use `{"error":{"code":"…","message":"…"}}`.
 
 Amounts enter the API as decimal **strings**, e.g. `"50.10"`, and are stored as integer cents. No binary floating-point money calculations occur on the backend. Due dates are date-only `YYYY-MM-DD`, inclusive through that date in **Africa/Nairobi (UTC+3)**. Overdue means unpaid with a due date before today's Nairobi calendar date. Audit/payment timestamps are stored as UTC ISO 8601; UI payment timestamps are displayed in Nairobi. Outstanding includes overdue; paid requests are excluded from both.
+
+Restart Flask after updating: initialization adds `payment_events` without replacing requests/attempts. Existing records show only history supported by reliable saved timestamps; old order/cancellation events are not invented. Confirmation requires matching persisted completed-capture evidence, never just a URL flag or browser callback. See [enhancement notes, migration/restart and manual checklist](docs/ENHANCEMENTS.md).
 
 ### Payment correctness and recovery
 
