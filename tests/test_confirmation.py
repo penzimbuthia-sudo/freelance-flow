@@ -67,3 +67,8 @@ def test_pending_or_unapproved_capture_never_confirms(client, saved, paypal, app
     assert client.post(path + "/capture", json={"order_id": order_id}).status_code == 409
     assert client.get(path).json["request"]["confirmation"] is None
     assert details(client, saved)["confirmation"] is None
+
+
+def test_production_app_does_not_register_browser_fixture_controls(app, client):
+    assert not any(rule.rule.startswith("/__test__/") for rule in app.url_map.iter_rules())
+    assert client.post("/__test__/services", json={"enabled": True}).status_code == 405

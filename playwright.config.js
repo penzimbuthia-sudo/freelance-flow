@@ -7,7 +7,7 @@ export default defineConfig({
   timeout: 120_000,
   use: { baseURL: 'http://localhost:5001', browserName: 'chromium', trace: 'retain-on-failure' },
   webServer: {
-    command: '.venv/bin/python -m flask --app backend:create_app run --host 127.0.0.1 --port 5001 --no-debugger --no-reload',
+    command: '.venv/bin/python tests/browser_server.py',
     url: 'http://localhost:5001/api/health',
     reuseExistingServer: false,
     env: {
