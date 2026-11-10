@@ -30,6 +30,11 @@ def status(row):
     return "overdue" if date.fromisoformat(row["due_date"]) < today() else "pending"
 
 
+def require_public_available(row):
+    if row["archived_at"] and row["status"] != "paid":
+        raise AppError("request_unavailable", "This payment request is no longer available.", 404)
+
+
 def serialize(row, public=False):
     result = {key: row[key] for key in (
         "service_description", "amount_cents", "currency", "due_date", "paid_at"
@@ -38,6 +43,7 @@ def serialize(row, public=False):
     if not public:
         result.update({key: row[key] for key in ("id", "client_name", "created_at", "updated_at")})
         result["payment_url"] = f'{current_app.config["PUBLIC_BASE_URL"]}/pay/{row["public_token"]}'
+        result.update(archived=bool(row["archived_at"]), archived_at=row["archived_at"])
     else:
         # No client name, internal IDs, prompts, or attempt diagnostics on public pages.
         attempt = get_db().execute(

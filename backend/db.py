@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS payment_requests (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     paid_at TEXT,
+    archived_at TEXT,
     capture_id TEXT UNIQUE
 );
 CREATE TABLE IF NOT EXISTS payment_attempts (
@@ -82,6 +83,12 @@ def init_db():
     Path(current_app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
     get_db().execute("PRAGMA journal_mode = WAL")
     get_db().executescript(SCHEMA)
+    # Additive and serialized across startup processes; existing rows stay active.
+    with transaction() as db:
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(payment_requests)")}
+        if "archived_at" not in columns:
+            db.execute("ALTER TABLE payment_requests ADD COLUMN archived_at TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS requests_archive ON payment_requests(archived_at, created_at, id)")
 
 
 def close_db(_error=None):

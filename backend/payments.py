@@ -6,7 +6,7 @@ from flask import current_app
 from .activity import record_event
 from .db import get_db, now, transaction
 from .errors import AppError
-from .models import find_request
+from .models import find_request, require_public_available
 from .paypal import verify_order
 
 
@@ -51,7 +51,6 @@ def new_attempt(db, request_id):
 
 
 def create_order(token):
-    require_ready()
     attempt_id = None
     try:
         while True:
@@ -59,6 +58,8 @@ def create_order(token):
             # must converge on one replacement. Commit new keys BEFORE calling PayPal.
             with transaction() as db:
                 row = find_request(token=token)
+                require_public_available(row)
+                require_ready()
                 if row["status"] == "paid":
                     raise AppError("already_paid", "This request is already paid.", 409)
                 attempt = db.execute(
@@ -107,9 +108,10 @@ def create_order(token):
 
 
 def capture_order(token, order_id):
-    require_ready()
     with transaction() as db:
         row = find_request(token=token)
+        require_public_available(row)
+        require_ready()
         attempt = db.execute("SELECT * FROM payment_attempts WHERE order_id=? AND request_id=?", (order_id, row["id"])).fetchone()
         if not attempt:
             raise AppError("order_not_bound", "This order does not belong to this payment request.", 409)

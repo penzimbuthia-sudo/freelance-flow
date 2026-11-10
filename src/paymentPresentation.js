@@ -3,9 +3,10 @@ export const money = (cents) => new Intl.NumberFormat('en-US', { style: 'currenc
 export const dueDate = (value) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`))
 export const paymentTime = (value) => new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(value))
 
-export function paymentPresentation(facts) {
+export function paymentPresentation(facts, archived = false) {
   const amount = money(facts.amount_cents)
   if (facts.payment_status === 'paid') return { explanation: `${amount} is recorded as paid.`, nextStep: 'send a thank-you message.' }
+  if (archived) return { explanation: `${amount} is unpaid. This request is archived.`, nextStep: 'restore the request before sharing the payment link.' }
   let explanation = `${amount} is unpaid. Due ${dueDate(facts.due_date)}.`
   let nextStep = 'share the payment link.'
   if (facts.timing === 'today') {

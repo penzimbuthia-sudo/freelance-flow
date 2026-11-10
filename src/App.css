@@ -61,6 +61,11 @@ td:first-child { width: 43%; min-width: 200px; }
 .status.paid { background: #DAF5E9; color: #076342; }
 .status.pending { background: #FFF0CE; color: #805008; }
 .status.overdue { background: #FFF0CE; color: #805008; }
+.archived-label { display: block; margin-top: 6px; color: var(--muted); font-size: var(--text-support); }
+.totals-scope { margin-bottom: 14px; font-size: var(--text-support); }
+.archive-list-help { padding: 16px 24px 0; font-size: var(--text-support); }
+.details-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.dialog-error { margin: 16px 0 0; }
 .icon-link { color: var(--muted); min-width: 32px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
 .ai-note { margin-top: 27px; background: #F1EDFC; border: 1px solid #DBD2F3; border-radius: 12px; display: flex; gap: 16px; padding: 23px 26px; align-items: center; }
 .ai-note-icon { color: #7143C8; background: #E7DFF8; padding: 10px; border-radius: 10px; }

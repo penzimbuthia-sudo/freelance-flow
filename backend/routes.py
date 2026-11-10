@@ -5,11 +5,12 @@ from flask import Blueprint, current_app, jsonify, request
 
 from . import ai, payments
 from .activity import activity_for, record_event
+from .archiving import archive_request, restore_request
 from .confirmation import payment_confirmation
 from .db import get_db, now, transaction
 from .errors import AppError
 from .guidance import explain_payment
-from .models import create_request, find_request, serialize, status, today
+from .models import create_request, find_request, require_public_available, serialize, status, today
 from .security import require_local_management
 from .settings import get_settings, require_display_name, save_settings
 
@@ -53,7 +54,11 @@ def health():
 
 @api.get("/requests")
 def list_requests():
-    rows = get_db().execute("SELECT * FROM payment_requests ORDER BY created_at DESC, id DESC").fetchall()
+    archived = request.args.get("archived", "0")
+    if archived not in ("0", "1"):
+        raise AppError("validation_error", "archived must be 0 or 1.")
+    condition = "IS NOT NULL" if archived == "1" else "IS NULL"
+    rows = get_db().execute(f"SELECT * FROM payment_requests WHERE archived_at {condition} ORDER BY created_at DESC, id DESC").fetchall()
     return jsonify({"requests": [serialize(row) for row in rows]})
 
 
@@ -79,20 +84,33 @@ def request_details(request_id):
                     "activity": activity_for(row), "confirmation": payment_confirmation(row)})
 
 
+@api.post("/requests/<int:request_id>/archive")
+def archive(request_id):
+    return jsonify({"request": serialize(archive_request(request_id))})
+
+
+@api.post("/requests/<int:request_id>/restore")
+def restore(request_id):
+    return jsonify({"request": serialize(restore_request(request_id))})
+
+
 @api.get("/dashboard")
 def dashboard():
-    rows = get_db().execute("SELECT * FROM payment_requests ORDER BY created_at DESC, id DESC").fetchall()
+    rows = get_db().execute("SELECT * FROM payment_requests WHERE archived_at IS NULL ORDER BY created_at DESC, id DESC").fetchall()
     return jsonify({
         "paid_cents": sum(row["amount_cents"] for row in rows if row["status"] == "paid"),
         "outstanding_cents": sum(row["amount_cents"] for row in rows if row["status"] != "paid"),
         "overdue_cents": sum(row["amount_cents"] for row in rows if status(row) == "overdue"),
         "request_count": len(rows), "recent_requests": [serialize(row) for row in rows[:5]],
+        "archived_excluded": True,
     })
 
 
 @api.post("/requests/<int:request_id>/message")
 def message(request_id):
     row = find_request(request_id)
+    if row["archived_at"] and row["status"] != "paid":
+        raise AppError("request_archived", "Restore this request before generating a payment message.", 409)
     options = body() if request.is_json else {}
     if options.get("context_aware") is True:
         facts = explain_payment(row)
@@ -100,7 +118,8 @@ def message(request_id):
             facts, row["client_name"], get_settings()["freelancer_display_name"],
             current_app.config["GOOGLE_API_KEY"], current_app.config["GEMINI_MODEL"],
         )
-        if explain_payment(find_request(request_id)) != facts:
+        fresh = find_request(request_id)
+        if (fresh["archived_at"] and fresh["status"] != "paid") or explain_payment(fresh) != facts:
             raise AppError("guidance_changed", "Payment facts changed while generating. Refresh the request and try again.", 409)
         return jsonify({"message": text, "source": "gemini", "model": current_app.config["GEMINI_MODEL"], "wording": "constrained"})
     if row["status"] == "paid":
@@ -113,6 +132,7 @@ def message(request_id):
         "due_date": row["due_date"], "today": today().isoformat(),
         "overdue": status(row) == "overdue", "payment_status": "unpaid",
     }, current_app.config["GOOGLE_API_KEY"], current_app.config["GEMINI_MODEL"])
+    require_public_available(find_request(request_id))
     return jsonify({"message": text, "source": "gemini", "model": current_app.config["GEMINI_MODEL"]})
 
 
@@ -124,7 +144,9 @@ def public_config():
 
 @api.get("/public/requests/<token>")
 def public_details(token):
-    return jsonify({"request": serialize(find_request(token=token), public=True)})
+    row = find_request(token=token)
+    require_public_available(row)
+    return jsonify({"request": serialize(row, public=True)})
 
 
 @api.post("/public/requests/<token>/orders")
@@ -148,6 +170,7 @@ def order_cancel(token):
     # A browser cancellation is advisory, not proof an order cannot still capture.
     with transaction() as db:
         row = find_request(token=token)
+        require_public_available(row)
         attempt = db.execute("SELECT * FROM payment_attempts WHERE request_id=? AND order_id=?", (row["id"], order_id)).fetchone()
         if not attempt:
             raise AppError("order_not_bound", "This order does not belong to this payment request.", 409)

@@ -50,3 +50,7 @@ test('known generation failures use product copy without exposing configuration 
   assert.equal(generationError({ message: 'Check your connection and try again.' }), 'Check your connection and try again.')
   assert.equal(generationError({ code: 'constructor', message: 'Unknown failure' }), 'Unknown failure')
 })
+test('archived unpaid guidance does not invite payment; archived paid guidance remains a thank-you', () => {
+  assert.deepEqual(paymentPresentation(facts, true), { explanation: '$1.00 is unpaid. This request is archived.', nextStep: 'restore the request before sharing the payment link.' })
+  assert.equal(paymentPresentation({ ...facts, payment_status: 'paid' }, true).nextStep, 'send a thank-you message.')
+})

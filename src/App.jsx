@@ -55,7 +55,7 @@ function useResource(path) {
       const data = await api(path)
       if (current === sequence.current) setState({ data, error: '', loading: false })
     } catch (error) {
-      if (current === sequence.current) setState((old) => ({ ...old, error: error.message, loading: false }))
+      if (current === sequence.current) setState((old) => ({ ...old, data: error.code === 'request_unavailable' ? null : old.data, error: error.message, loading: false }))
     }
   }, [path])
   useEffect(() => {
@@ -116,7 +116,7 @@ function RequestTable({ requests, filtered = false }) {
     {requests.map((item) => <tr key={item.id}>
       <td><Link className="client-link" to={`/requests/${item.id}`}>{item.client_name}</Link><span className="service-preview">{item.service_description}</span></td>
       <td className="amount-cell">{money(item.amount_cents)}<small>USD</small></td><td className="date-cell">{dueDate(item.due_date)}</td>
-      <td><Status value={item.status} /></td><td><Link className="icon-link" to={`/requests/${item.id}`} aria-label={`View request for ${item.client_name}`}><Icon name="arrow" /></Link></td>
+      <td><Status value={item.status} />{item.archived && <span className="archived-label">Archived</span>}</td><td><Link className="icon-link" to={`/requests/${item.id}`} aria-label={`View request for ${item.client_name}`}><Icon name="arrow" /></Link></td>
     </tr>)}
   </tbody></table></div>
 }
@@ -127,24 +127,26 @@ function Dashboard() {
     <PageHeading eyebrow="A little clarity, every day" title="Your money, in view." description="Less chasing payments. More time for your work." action={<NewButton />} />
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !data ? <Loading /> : data && <>
-      <section className="stats" aria-label="Payment totals">
-        {[['paid', 'Paid amount', data.paid_cents, 'Confirmed payments'], ['pending', 'Outstanding amount', data.outstanding_cents, 'All unpaid requests'], ['overdue', 'Overdue amount', data.overdue_cents, 'Included in outstanding']].map(([kind, label, amount, help]) => <article className={`card stat ${kind}`} key={kind}><div className="stat-label"><span>{label}</span><span className="stat-icon"><Icon name={kind} /></span></div><div className="stat-value">{money(amount)}</div><p>{help}</p></article>)}
+      <p className="totals-scope muted">Totals exclude archived requests.</p>
+      <section className="stats" aria-label="Payment totals excluding archived requests">
+        {[['paid', 'Paid amount', data.paid_cents, 'Confirmed active requests'], ['pending', 'Outstanding amount', data.outstanding_cents, 'Active unpaid requests'], ['overdue', 'Overdue amount', data.overdue_cents, 'Included in outstanding']].map(([kind, label, amount, help]) => <article className={`card stat ${kind}`} key={kind}><div className="stat-label"><span>{label}</span><span className="stat-icon"><Icon name={kind} /></span></div><div className="stat-value">{money(amount)}</div><p>{help}</p></article>)}
       </section>
-      <section className="card requests-card"><div className="card-heading"><div><h2>Recent requests</h2><p className="muted">{data.request_count} saved {data.request_count === 1 ? 'request' : 'requests'} in your workspace</p></div><Link className="text-link" to="/requests">View all <Icon name="arrow" size={16} /></Link></div><RequestTable requests={data.recent_requests} /></section>
+      <section className="card requests-card"><div className="card-heading"><div><h2>Recent requests</h2><p className="muted">{data.request_count} active {data.request_count === 1 ? 'request' : 'requests'} in your workspace</p></div><Link className="text-link" to="/requests">View all <Icon name="arrow" size={16} /></Link></div><RequestTable requests={data.recent_requests} /></section>
       <div className="ai-note"><span className="ai-note-icon"><Icon name="ai" size={24} /></span><div><h3>A thoughtful nudge, not another task.</h3><p>Open a request to draft a short AI payment message. Review it, make it yours, and share it when you’re ready.</p></div></div>
     </>}
   </>
 }
 
 function Requests() {
-  const { data, error, loading, reload } = useResource('/requests')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
-  const requests = data?.requests.filter((item) => (filter === 'all' || item.status === filter) && `${item.client_name} ${item.service_description}`.toLowerCase().includes(search.toLowerCase())) || []
+  const { data, error, loading, reload } = useResource(filter === 'archived' ? '/requests?archived=1' : '/requests')
+  const requests = data?.requests.filter((item) => (filter === 'archived' ? item.archived : !item.archived) && (filter === 'all' || filter === 'archived' || item.status === filter) && `${item.client_name} ${item.service_description}`.toLowerCase().includes(search.toLowerCase())) || []
   return <>
     <PageHeading eyebrow="Keep every request in sight" title="Payment requests" description="The details, the status, and the next step. All in one place." action={<NewButton />} />
     <section className="card requests-card">
-      <div className="filters"><div className="search-field"><Icon name="search" /><label className="sr-only" htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Search client or service…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="filter-field"><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="overdue">Overdue</option><option value="paid">Paid</option></select></div></div>
+      <div className="filters"><div className="search-field"><Icon name="search" /><label className="sr-only" htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Search client or service…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="filter-field"><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All active requests</option><option value="pending">Pending</option><option value="overdue">Overdue</option><option value="paid">Paid</option><option value="archived">Archived</option></select></div></div>
+      {filter === 'archived' && <p className="archive-list-help muted">Archived requests are excluded from totals. Open a request to restore it.</p>}
       {error && <ErrorNotice message={error} retry={reload} />}
       {loading && !data ? <Loading /> : data && <RequestTable requests={requests} filtered={!!search || filter !== 'all'} />}
     </section>
@@ -212,7 +214,8 @@ function AIPanel({ item, guidance }) {
   const nameDirty = nameDraft !== null && nameDraft !== savedName
   const staleDraft = !!message && draftStatus !== null && draftStatus !== item.status
   const showNameForm = editingName || !savedName
-  const presentation = guidance ? paymentPresentation(guidance) : null
+  const archivedUnpaid = item.archived && item.status !== 'paid'
+  const presentation = guidance ? paymentPresentation(guidance, item.archived) : null
   const blocker = useDraftNavigation(hasDraftEdits(message, generatedMessage))
   useEffect(() => {
     if (editingName) nameInputRef.current?.focus()
@@ -245,7 +248,7 @@ function AIPanel({ item, guidance }) {
     finally { setSavingName(false) }
   }
   async function generate() {
-    if (busy || savingName || settings.loading || settings.error || !savedName || nameDirty || message) return
+    if (busy || savingName || settings.loading || settings.error || !savedName || nameDirty || message || archivedUnpaid) return
     setBusy(true); setError('')
     try { const data = await post(`/requests/${item.id}/message`, { context_aware: true }); setMessage(data.message); setGeneratedMessage(data.message); setDraftStatus(item.status); setSource(data.source === 'gemini' ? 'AI-assisted draft' : 'Explicit test fixture · not real AI output') }
     catch (error) { setError(generationError(error)) }
@@ -274,7 +277,7 @@ function AIPanel({ item, guidance }) {
       {nameFeedback && <p className="name-feedback" role="status">{nameFeedback}</p>}
       {nameDirty && <p className="name-feedback">Save or cancel your name edit before generating a message.</p>}
       </div>
-      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Generating…' : item.status === 'paid' ? 'Generate thank-you message' : 'Generate payment message'}</button>
+      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message || archivedUnpaid}><Icon name="ai" size={18} />{busy ? 'Generating…' : item.status === 'paid' ? 'Generate thank-you message' : 'Generate payment message'}</button>
       {error && <ErrorNotice message={error} retry={!message && !busy && !savingName && !!savedName && !nameDirty ? generate : undefined} />}
       {staleDraft && <div className="notice attention" role="status">Payment status changed since this draft was written. Clear it to generate current guidance, or edit it before copying.</div>}
       {source && <p className="ai-source">{source} · editable draft</p>}
@@ -296,17 +299,34 @@ function PaymentConfirmation({ confirmation }) {
 function Details() {
   const { id } = useParams()
   const location = useLocation()
-  const { data, error, loading, reload } = useResource(`/requests/${id}`)
+  const { data, error, loading, reload, replace } = useResource(`/requests/${id}`)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+  const [archiveError, setArchiveError] = useState('')
+  const archiveTriggerRef = useRef(null)
   const item = data?.request
+  async function changeArchive(restore = false) {
+    if (archiving) return
+    setArchiving(true); setArchiveError('')
+    try {
+      const result = await post(`/requests/${id}/${restore ? 'restore' : 'archive'}`)
+      replace({ ...data, request: result.request })
+      setArchiveOpen(false)
+    } catch (error) { setArchiveError(error.message) }
+    finally { setArchiving(false) }
+  }
   return <>
     <Link className="back-link" to="/requests">← Payment requests</Link>
     {location.state?.created && <div className="notice success" role="status"><Icon name="paid" />Request saved. Your client payment link is ready.</div>}
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !item ? <Loading /> : item && <>
-      <PageHeading eyebrow={`Payment request #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
+      <PageHeading eyebrow={`Payment request #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<div className="details-actions"><Status value={item.status} /><button ref={archiveTriggerRef} className="button secondary" disabled={archiving} onClick={() => { setArchiveError(''); if (item.archived) changeArchive(true); else setArchiveOpen(true) }}>{archiving && !archiveOpen ? 'Restoring…' : item.archived ? 'Restore request' : 'Archive request'}</button></div>} />
+      {item.archived && <div className="notice info" role="status">Archived request. Hidden from active lists and totals. {data.confirmation ? 'Its verified payment confirmation remains available.' : item.status === 'paid' ? 'Its recorded paid status is unchanged.' : 'Restore it to accept payment again.'}</div>}
+      {archiveError && !archiveOpen && <ErrorNotice message={archiveError} />}
       <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}</dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{paymentTime(item.paid_at)} EAT</dd></div>}</dl></section>
-      <section className="card detail-card payment-link-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" size={1} value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><p className="muted link-privacy">Anyone with this link can view this request’s payment details.</p></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
+      <section className="card detail-card payment-link-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" size={1} value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><p className="muted link-privacy">{item.archived && item.status !== 'paid' ? 'This link is unavailable while archived. Once restored, anyone with it can view the payment details.' : 'Anyone with this link can view this request’s payment details.'}</p></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
       {data.confirmation && <div className="card detail-card confirmation-card"><PaymentConfirmation confirmation={data.confirmation} /></div>}
+      {archiveOpen && <ConfirmDialog title="Archive this request?" description="This hides the request from active lists and totals without deleting its payment history. Unpaid links will no longer accept payment; paid confirmations stay available." cancelLabel="Keep request" confirmLabel="Archive request" busy={archiving} busyLabel="Archiving…" error={archiveError} onCancel={() => setArchiveOpen(false)} onConfirm={() => changeArchive()} returnFocusRef={archiveTriggerRef} fallbackFocusRef={archiveTriggerRef} />}
     </>}
   </>
 }
