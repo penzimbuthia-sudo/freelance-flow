@@ -104,6 +104,9 @@ test('context guidance, persisted activity, verified confirmation and print — 
     await page.getByRole('button', { name: 'Print confirmation' }).click()
     expect(await page.evaluate(() => window.printCalls)).toBe(1)
     await page.emulateMedia({ media: 'print' })
+    for (const selector of ['html', 'body', '#root']) {
+      expect(await page.locator(selector).evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
+    }
     await expect(page.getByRole('region', { name: 'Sandbox payment confirmation' })).toBeVisible()
     await expect(page.locator('.sidebar')).toBeHidden()
     await expect(explanation).toBeHidden()

@@ -167,7 +167,7 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .capture-reference { font-family: ui-monospace, monospace; font-size: .8rem; }
 @media print {
   @page { margin: 16mm; }
-  body { background: #fff; }
+  html, body, #root { background: #fff !important; }
   body * { visibility: hidden; }
   .payment-confirmation, .payment-confirmation * { visibility: visible; }
   .payment-confirmation { position: absolute; top: 0; left: 0; width: 100%; padding: 0; color: #142C4E; background: #fff; }
