@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 from . import ai, payments
 from .db import get_db, now
 from .errors import AppError
+from .guidance import explain_payment
 from .models import create_request, find_request, serialize, status, today
 from .security import require_local_management
 from .settings import get_settings, require_display_name, save_settings
@@ -71,7 +72,8 @@ def new_request():
 
 @api.get("/requests/<int:request_id>")
 def request_details(request_id):
-    return jsonify({"request": serialize(find_request(request_id))})
+    row = find_request(request_id)
+    return jsonify({"request": serialize(row), "guidance": explain_payment(row)})
 
 
 @api.get("/dashboard")
@@ -88,6 +90,16 @@ def dashboard():
 @api.post("/requests/<int:request_id>/message")
 def message(request_id):
     row = find_request(request_id)
+    options = body() if request.is_json else {}
+    if options.get("context_aware") is True:
+        facts = explain_payment(row)
+        text = ai.generate_guidance_message(
+            facts, row["client_name"], get_settings()["freelancer_display_name"],
+            current_app.config["GOOGLE_API_KEY"], current_app.config["GEMINI_MODEL"],
+        )
+        if explain_payment(find_request(request_id)) != facts:
+            raise AppError("guidance_changed", "Payment facts changed while generating. Refresh the request and try again.", 409)
+        return jsonify({"message": text, "source": "gemini", "model": current_app.config["GEMINI_MODEL"], "wording": "constrained"})
     if row["status"] == "paid":
         raise AppError("already_paid", "This request is paid; no payment reminder is needed.", 409)
     freelancer_display_name = require_display_name(get_settings()["freelancer_display_name"])

@@ -35,7 +35,7 @@
 .stat-icon { border-radius: 10px; padding: 8px; display: inline-flex; }
 .stat.paid .stat-icon { color: #06734F; background: #DAF5E9; }
 .stat.pending .stat-icon { color: #8A5008; background: #FEF0CD; }
-.stat.overdue .stat-icon { color: #B42327; background: #FDE5E5; }
+.stat.overdue .stat-icon { color: #805008; background: #FFF0CE; }
 .stat-value { font-size: clamp(1.55rem, 2.4vw, 2.15rem); font-weight: 700; letter-spacing: -.05em; margin: 15px 0 5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .stat p { color: var(--muted); font-size: .75rem; }
 .card-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 23px 26px; }
@@ -57,7 +57,7 @@ td:first-child { width: 43%; min-width: 200px; }
 .status { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 6px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
 .status.paid { background: #DAF5E9; color: #076342; }
 .status.pending { background: #FFF0CE; color: #805008; }
-.status.overdue { background: #FDE5E5; color: #AB2428; }
+.status.overdue { background: #FFF0CE; color: #805008; }
 .icon-link { color: var(--muted); min-width: 32px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
 .ai-note { margin-top: 27px; background: #F1EDFC; border: 1px solid #DBD2F3; border-radius: 12px; display: flex; gap: 16px; padding: 23px 26px; align-items: center; }
 .ai-note-icon { color: #7143C8; background: #E7DFF8; padding: 10px; border-radius: 10px; }
@@ -87,6 +87,7 @@ td:first-child { width: 43%; min-width: 200px; }
 .notice.error { background: #FFF0F0; color: #A22027; border-color: #F3C4C5; flex-wrap: wrap; }
 .notice.success { background: #E6F7EE; color: #076342; border-color: #B6E7CF; }
 .notice.info { background: #EEF4FD; color: #244974; border-color: #C9D9F0; }
+.notice.attention { background: #FFF2D7; color: #79500E; border-color: #EBD59E; }
 .notice .text-button { color: inherit; }
 .text-button { background: none; border: none; color: var(--blue); font-size: .8rem; font-weight: 600; padding: 8px 0; min-height: 40px; text-decoration: underline; text-underline-offset: 3px; }
 .loading { color: var(--muted); padding: 35px 25px; text-align: center; }
@@ -110,6 +111,13 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .link-actions { display: flex; gap: 15px; align-items: flex-start; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; }
 .ai-symbol { display: inline-flex; padding: 10px; border-radius: 10px; background: #EDE5FC; color: #6D36C7; }
 .ai-panel { border-top: 3px solid var(--purple); }
+.payment-explanation { padding: 16px; border: 1px solid #EBD59E; background: #FFFAED; border-radius: 9px; margin-bottom: 22px; font-size: .83rem; overflow-wrap: anywhere; }
+.payment-explanation.confirmed { border-color: #B6E7CF; background: #F0FAF5; }
+.payment-explanation h3 { display: flex; align-items: center; gap: 7px; font-size: .83rem; margin-bottom: 7px; color: #79500E; }
+.payment-explanation.confirmed h3 { color: #076342; }
+.payment-explanation p { margin-bottom: 14px; }
+.payment-explanation small { font-size: .7rem; color: var(--muted); }
+.ai-panel > h3 { font-size: .9rem; margin-bottom: 8px; }
 .ai-panel > p { font-size: .85rem; color: var(--muted); margin-bottom: 20px; }
 .ai-button { background: #7040C8; color: #fff; border-color: #7040C8; width: 100%; margin-bottom: 20px; white-space: normal; }
 .ai-button:hover:not(:disabled) { background: #5B2DAE; }

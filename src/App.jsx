@@ -181,7 +181,7 @@ function CopyButton({ text, label = 'Copy', className = 'secondary' }) {
   return <div className="copy-control"><button className={`button ${className}`} onClick={copy} disabled={!text}><Icon name="copy" size={17} />{label}</button>{feedback?.text === text && <small className="copy-feedback" role="status">{feedback.message}</small>}</div>
 }
 
-function AIPanel({ item }) {
+function AIPanel({ item, guidance }) {
   const settings = useResource('/settings')
   const [nameDraft, setNameDraft] = useState(null)
   const [savingName, setSavingName] = useState(false)
@@ -189,10 +189,12 @@ function AIPanel({ item }) {
   const [nameFeedback, setNameFeedback] = useState('')
   const [message, setMessage] = useState('')
   const [source, setSource] = useState('')
+  const [draftStatus, setDraftStatus] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const savedName = settings.data?.settings.freelancer_display_name || ''
   const nameDirty = nameDraft !== null && nameDraft !== savedName
+  const staleDraft = !!message && draftStatus !== null && draftStatus !== item.status
   async function saveName(event) {
     event.preventDefault()
     if (savingName || busy) return
@@ -206,14 +208,16 @@ function AIPanel({ item }) {
     finally { setSavingName(false) }
   }
   async function generate() {
+    if (busy || savingName || settings.loading || settings.error || !savedName || nameDirty || message) return
     setBusy(true); setError('')
-    try { const data = await post(`/requests/${item.id}/message`); setMessage(data.message); setSource(data.source === 'gemini' ? `Real Gemini output · ${data.model}` : 'Explicit test fixture · not real AI output') }
+    try { const data = await post(`/requests/${item.id}/message`, { context_aware: true }); setMessage(data.message); setDraftStatus(item.status); setSource(data.source === 'gemini' ? `AI-assisted wording selection · Gemini ${data.model} · facts composed by the app` : 'Explicit test fixture · not real AI output') }
     catch (error) { setError(error.message) }
     finally { setBusy(false) }
   }
-  return <section className="card ai-panel"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Your AI payment companion</h2><p className="muted">A starting point, always in your hands.</p></div></div>
-    {item.status === 'paid' ? <div className="notice success"><Icon name="paid" />This request is paid. No reminder needed.</div> : <>
-      <p>Draft {item.status === 'overdue' ? 'a polite overdue reminder' : 'a short payment request'} from the saved details. Nothing is sent automatically.</p>
+  return <section className="card ai-panel" aria-label="Explain this payment"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Explain this payment</h2><p className="muted">Saved facts. One next step. An AI-assisted draft.</p></div></div>
+      {guidance && <div className={`payment-explanation ${item.status === 'paid' ? 'confirmed' : 'attention'}`}><h3><Icon name={item.status === 'paid' ? 'paid' : 'pending'} size={17} />What’s happening</h3><p>{guidance.explanation}</p><h3>Recommended next action</h3><p>{guidance.next_action}</p><small>Facts calculated by the app · Africa/Nairobi (UTC+3)</small></div>}
+      <h3>Suggested message</h3>
+      <p>{item.status === 'paid' ? 'Draft a thank-you, not another payment reminder.' : 'Draft a polite message from the saved details.'} Gemini chooses an approved wording style; the app adds payment facts. Nothing is sent automatically.</p>
       <p className="muted"><strong>Greeting recipient (client):</strong> {item.client_name?.trim() || 'No client name saved — uses “Hello,”.'}</p>
       {settings.error && <ErrorNotice message={settings.error} retry={settings.reload} />}
       {settings.loading && !settings.data && <p role="status">Loading your display name…</p>}
@@ -227,13 +231,13 @@ function AIPanel({ item }) {
           {nameDirty && <p className="name-feedback">Save your display name before generating a message.</p>}
         </form>
       </>}
-      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Asking Gemini…' : 'Generate payment message'}</button>
-      {error && <ErrorNotice message={error} />}
+      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Asking Gemini…' : item.status === 'paid' ? 'Generate thank-you message' : 'Generate payment message'}</button>
+      {error && <ErrorNotice message={error} retry={!message && !busy && !savingName && !!savedName && !nameDirty ? generate : undefined} />}
+      {staleDraft && <div className="notice attention" role="status">Payment status changed since this draft was written. Clear it to generate current guidance, or edit it before copying.</div>}
       {source && <p className="ai-source">{source} · editable draft</p>}
-      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => setMessage(event.target.value)} placeholder="Your AI-generated message will appear here. You can also write your own." /></div>
-      <div className="ai-actions"><CopyButton text={message} label="Copy message" /><button className="text-button" disabled={busy || !message} onClick={() => { if (window.confirm('Discard this draft so you can generate another?')) { setMessage(''); setSource(''); setError('') } }}>Clear draft</button></div>
+      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => { setMessage(event.target.value); setDraftStatus(item.status) }} placeholder="Your AI-assisted message will appear here. You can also write your own." /></div>
+      <div className="ai-actions"><CopyButton text={staleDraft ? '' : message} label="Copy message" /><button className="text-button" disabled={busy || !message} onClick={() => { if (window.confirm('Discard this draft so you can generate another?')) { setMessage(''); setSource(''); setError(''); setDraftStatus(null) } }}>Clear draft</button></div>
       <small className="muted">Check every fact before sharing. Edits stay in this tab only. Copy the payment link separately.</small>
-    </>}
   </section>
 }
 
@@ -249,7 +253,7 @@ function Details() {
     {loading && !item ? <Loading /> : item && <>
       <PageHeading eyebrow={`PAYMENT REQUEST #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
       <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}<small>Africa/Nairobi (UTC+3)</small></dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(item.paid_at))} EAT</dd></div>}</dl></section>
-      <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>Client payment link</h2></div><p className="muted">Anyone with this link can view the service, amount, and due date, then pay in sandbox.</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section></div><AIPanel item={item} /></div>
+      <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><p className="muted">{item.status === 'paid' ? 'This private link shows the recorded payment confirmation, not another checkout.' : 'Anyone with this link can view the service, amount, and due date, then pay in sandbox.'}</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section></div><AIPanel item={item} guidance={data.guidance} /></div>
     </>}
   </>
 }
