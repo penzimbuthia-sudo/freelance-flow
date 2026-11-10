@@ -50,6 +50,7 @@ for (const width of [375, 1440]) {
     await draft.fill(edited)
     const source = await panel.locator('.ai-source').textContent()
     const unsavedName = 'Unsaved freelancer edit'
+    await panel.getByRole('button', { name: 'Edit', exact: true }).click()
     await page.getByLabel('Freelancer display name', { exact: true }).fill(unsavedName)
     const explanation = await panel.locator('.payment-explanation').textContent()
     const timeline = await page.getByRole('region', { name: 'Payment activity' }).textContent()

@@ -121,6 +121,12 @@ for (const width of [375, 1440]) {
       })
       page.on('request', (request) => { if (request.method() !== 'GET') mutations.push(request.method()) })
       await context.route('**/*', (route) => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort())
+      await page.route('**/api/requests/*', async (route) => {
+        const response = await route.fetch()
+        const data = await response.json()
+        data.request.payment_url += `?typography=${'long-url-fixture-'.repeat(80)}`
+        await route.fulfill({ response, json: data })
+      })
       const views = [
         ['dashboard', '/'], ['requests', '/requests'], ['new-request', '/requests/new'],
         ['details', `/requests/${unpaid.id}`], ['client-payment', new URL(unpaid.payment_url).pathname],
@@ -152,6 +158,16 @@ for (const width of [375, 1440]) {
             await expect(draft).toHaveCSS('line-height', '25.6px')
             await draft.press('Control+End')
             expect(await draft.evaluate((element) => element.selectionStart)).toBe(longDraft.length)
+            await page.getByRole('navigation').getByRole('link', { name: 'Payment requests', exact: true }).press('Enter')
+            const leaveDialog = page.getByRole('dialog', { name: 'Leave this draft?' })
+            const keepEditing = leaveDialog.getByRole('button', { name: 'Keep editing' })
+            await expect(keepEditing).toBeFocused()
+            await expectReflow(page)
+            await expect(leaveDialog).toHaveCSS('font-family', await draft.evaluate((element) => getComputedStyle(element).fontFamily))
+            expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
+            await page.keyboard.press('Escape')
+            await expect(draft).toHaveValue(longDraft)
+            await expect(draft).toBeFocused()
             const trigger = page.locator('.ai-actions').getByRole('button', { name: 'Clear draft', exact: true })
             await trigger.focus()
             await page.keyboard.press('Enter')
@@ -186,6 +202,11 @@ for (const width of [375, 1440]) {
           const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
           expect(scan.violations, `${name} at ${width}px / ${zoom * 100}%`).toEqual([])
           await captureZoomedPage(page, cdp, testInfo.outputPath(`${name}-${width}-${zoom * 100}.png`))
+          if (name === 'details') {
+            await page.locator('.ai-actions').getByRole('button', { name: 'Clear draft', exact: true }).press('Enter')
+            await page.getByRole('dialog', { name: 'Clear this draft?' }).getByRole('button', { name: 'Clear draft', exact: true }).press('Enter')
+            await expect(page.getByLabel('Review and edit your message')).toHaveValue('')
+          }
           if (name === 'confirmation') {
             await expect(page.locator('.payment-confirmation')).toContainText('End of typography service.')
             await page.emulateMedia({ media: 'print' })

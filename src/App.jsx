@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PayPalProvider, PayPalOneTimePaymentButton } from '@paypal/react-paypal-js/sdk-v6'
 import ConfirmDialog from './ConfirmDialog'
+import { money, dueDate, paymentTime, paymentPresentation, hasDraftEdits, generationError } from './paymentPresentation'
+import useDraftNavigation from './useDraftNavigation'
 import './App.css'
-
-const money = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
-const dueDate = (value) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`))
-const paymentTime = (value) => new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(value))
 
 async function api(path, options = {}) {
   let response
   try {
     response = await fetch(`/api${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } })
   } catch {
-    throw new Error('Cannot reach the server. Check that Flask is running, then try again.')
+    throw new Error('Cannot reach the app. Check your connection and try again.')
   }
   const data = await response.json().catch(() => null)
-  if (!response.ok || !data) throw new Error(data?.error?.message || 'The server could not complete this request. Please try again.')
+  if (!response.ok || !data) {
+    const error = new Error(data?.error?.message || 'The server could not complete this request. Please try again.')
+    error.code = data?.error?.code
+    throw error
+  }
   return data
 }
 const post = (path, data = {}) => api(path, { method: 'POST', body: JSON.stringify(data) })
@@ -42,6 +44,10 @@ function useResource(path) {
   const [state, setState] = useState({ data: null, error: '', loading: true })
   const sequence = useRef(0)
   const invalidate = useCallback(() => { sequence.current++ }, [])
+  const replace = useCallback((data) => {
+    invalidate()
+    setState({ data, error: '', loading: false })
+  }, [invalidate])
   const reload = useCallback(async () => {
     const current = ++sequence.current
     setState((old) => ({ ...old, error: '', loading: true }))
@@ -57,7 +63,7 @@ function useResource(path) {
     window.addEventListener('focus', reload)
     return () => { invalidate(); window.removeEventListener('focus', reload) }
   }, [reload, invalidate])
-  return { ...state, reload }
+  return { ...state, reload, replace }
 }
 
 function ErrorNotice({ message, retry }) {
@@ -89,7 +95,7 @@ function Shell({ children }) {
     <div className="main-shell">
       <header className="topbar"><span>AI payment companion</span><span className="sandbox-label">PayPal sandbox · USD only</span></header>
       <main id="main" tabIndex="-1">{children}</main>
-      <footer className="workspace-footer">Single local workspace · Fictional demo data only · Due dates use Africa/Nairobi (UTC+3)</footer>
+      <footer className="workspace-footer">Dates and times use Africa/Nairobi (UTC+3).</footer>
     </div>
   </div>
 }
@@ -189,7 +195,9 @@ function AIPanel({ item, guidance }) {
   const [savingName, setSavingName] = useState(false)
   const [nameError, setNameError] = useState('')
   const [nameFeedback, setNameFeedback] = useState('')
+  const [editingName, setEditingName] = useState(false)
   const [message, setMessage] = useState('')
+  const [generatedMessage, setGeneratedMessage] = useState('')
   const [source, setSource] = useState('')
   const [draftStatus, setDraftStatus] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -197,67 +205,92 @@ function AIPanel({ item, guidance }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const clearTriggerRef = useRef(null)
   const draftRef = useRef(null)
+  const nameInputRef = useRef(null)
+  const editNameRef = useRef(null)
+  const restoreNameFocus = useRef(false)
   const savedName = settings.data?.settings.freelancer_display_name || ''
   const nameDirty = nameDraft !== null && nameDraft !== savedName
   const staleDraft = !!message && draftStatus !== null && draftStatus !== item.status
+  const showNameForm = editingName || !savedName
+  const presentation = guidance ? paymentPresentation(guidance) : null
+  const blocker = useDraftNavigation(hasDraftEdits(message, generatedMessage))
+  useEffect(() => {
+    if (editingName) nameInputRef.current?.focus()
+    else if (!showNameForm && restoreNameFocus.current) {
+      editNameRef.current?.focus()
+      restoreNameFocus.current = false
+    }
+  }, [editingName, showNameForm])
+  function editName() {
+    setNameDraft(savedName); setNameError(''); setNameFeedback(''); setEditingName(true)
+  }
+  function cancelName() {
+    setNameDraft(null); setNameError(''); setNameFeedback(''); setEditingName(false)
+    restoreNameFocus.current = true
+    if (!savedName) { nameInputRef.current?.focus(); restoreNameFocus.current = false }
+  }
   async function saveName(event) {
     event.preventDefault()
-    if (savingName || busy) return
+    if (savingName || busy || !nameDirty) return
     setSavingName(true); setNameError(''); setNameFeedback('')
     try {
       const result = await api('/settings', { method: 'PUT', body: JSON.stringify({ freelancer_display_name: nameDraft ?? savedName }) })
-      await settings.reload()
+      settings.replace(result)
       setNameDraft(null)
-      setNameFeedback(result.settings.freelancer_display_name ? 'Display name saved. New messages use this name; existing drafts are unchanged.' : 'Display name cleared. Add a name before generating a message.')
+      setEditingName(false)
+      restoreNameFocus.current = !!result.settings.freelancer_display_name
+      if (!result.settings.freelancer_display_name) nameInputRef.current?.focus()
+      setNameFeedback(result.settings.freelancer_display_name ? 'Sender name saved. Your current draft is unchanged.' : 'Name removed. Add a name before generating a message.')
     } catch (error) { setNameError(error.message) }
     finally { setSavingName(false) }
   }
   async function generate() {
     if (busy || savingName || settings.loading || settings.error || !savedName || nameDirty || message) return
     setBusy(true); setError('')
-    try { const data = await post(`/requests/${item.id}/message`, { context_aware: true }); setMessage(data.message); setDraftStatus(item.status); setSource(data.source === 'gemini' ? `AI-assisted wording selection · Gemini ${data.model} · facts composed by the app` : 'Explicit test fixture · not real AI output') }
-    catch (error) { setError(error.message) }
+    try { const data = await post(`/requests/${item.id}/message`, { context_aware: true }); setMessage(data.message); setGeneratedMessage(data.message); setDraftStatus(item.status); setSource(data.source === 'gemini' ? 'AI-assisted draft' : 'Explicit test fixture · not real AI output') }
+    catch (error) { setError(generationError(error)) }
     finally { setBusy(false) }
   }
   function clearDraft() {
     // Drafts are tab-local; clearing does not write settings or call an API.
-    setMessage(''); setSource(''); setError(''); setDraftStatus(null)
+    setMessage(''); setGeneratedMessage(''); setSource(''); setError(''); setDraftStatus(null)
     setConfirmClear(false)
   }
-  return <section className="card ai-panel" aria-label="Explain this payment"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Explain this payment</h2><p className="muted">Saved facts. One next step. An AI-assisted draft.</p></div></div>
-      {guidance && <div className={`payment-explanation ${item.status === 'paid' ? 'confirmed' : 'attention'}`}><h3><Icon name={item.status === 'paid' ? 'paid' : 'pending'} size={17} />What’s happening</h3><p>{guidance.explanation}</p><h3>Recommended next action</h3><p>{guidance.next_action}</p><small>Facts calculated by the app · Africa/Nairobi (UTC+3)</small></div>}
+  return <section className="card ai-panel" aria-label="Explain this payment"><div className="panel-title"><span className="ai-symbol"><Icon name="ai" size={23} /></span><div><h2>Explain this payment</h2><p className="muted">Understand this request and draft your next message.</p></div></div>
+      {presentation && <div role="note" aria-label="Payment facts" className={`payment-explanation ${item.status === 'paid' ? 'confirmed' : 'attention'}`}><p className="facts-summary"><Icon name={item.status === 'paid' ? 'paid' : 'pending'} size={17} /><span>{presentation.explanation}</span></p><p className="next-step"><strong>Next step:</strong> {presentation.nextStep}</p></div>}
       <h3>Suggested message</h3>
-      <p>{item.status === 'paid' ? 'Draft a thank-you, not another payment reminder.' : 'Draft a polite message from the saved details.'} Gemini chooses an approved wording style; the app adds payment facts. Nothing is sent automatically.</p>
-      <p className="muted"><strong>Greeting recipient (client):</strong> {item.client_name?.trim() || 'No client name saved — uses “Hello,”.'}</p>
+      <p className="suggested-description">Create a message from this request’s details, then make it your own.</p>
+      <div className="message-participants"><p className="message-recipient"><span className="muted">To:</span> {item.client_name?.trim() || 'Client (name not saved)'}</p>
       {settings.error && <ErrorNotice message={settings.error} retry={settings.reload} />}
       {settings.loading && !settings.data && <p role="status">Loading your display name…</p>}
-      {settings.data && <>
-        {!savedName && <div className="notice info" role="status">Add your freelancer display name below to generate a signed message.</div>}
-        <form className="display-name-form" onSubmit={saveName} aria-label="Freelancer display-name setting">
-          <div className="field"><label htmlFor="freelancer-display-name">Freelancer display name</label><input id="freelancer-display-name" value={nameDraft ?? savedName} onChange={(event) => { setNameDraft(event.target.value); setNameFeedback(''); setNameError('') }} maxLength={120} disabled={savingName || busy} autoComplete="off" aria-describedby="display-name-help" placeholder="The name you want to sign with" /><small id="display-name-help">Sender name saved for this workspace in SQLite. Used only for the closing, never as the client greeting.</small></div>
-          <button className="button secondary" disabled={savingName || busy || !nameDirty} type="submit">{savingName ? 'Saving name…' : 'Save display name'}</button>
+      {settings.data && (showNameForm ? <>
+        {!savedName && <p className="name-feedback">Add your freelancer display name to sign your messages.</p>}
+        <form className="display-name-form" onSubmit={saveName} aria-label="Freelancer display-name setting" id="sender-name-form">
+          <div className="field"><label htmlFor="freelancer-display-name">Freelancer display name</label><input ref={nameInputRef} id="freelancer-display-name" value={nameDraft ?? savedName} onChange={(event) => { setNameDraft(event.target.value); setNameFeedback(''); setNameError('') }} maxLength={120} disabled={savingName || busy} autoComplete="off" aria-describedby="display-name-help" placeholder="The name you want to sign with" /><small id="display-name-help">Used for your signature, not the client greeting.</small></div>
+          <div className="name-actions"><button className="button secondary" disabled={savingName || busy || !nameDirty} type="submit">{savingName ? 'Saving…' : 'Save'}</button><button className="text-button" type="button" disabled={savingName || busy} onClick={cancelName}>Cancel</button></div>
           {nameError && <ErrorNotice message={nameError} />}
-          {nameFeedback && <p className="name-feedback" role="status">{nameFeedback}</p>}
-          {nameDirty && <p className="name-feedback">Save your display name before generating a message.</p>}
         </form>
-      </>}
-      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Asking Gemini…' : item.status === 'paid' ? 'Generate thank-you message' : 'Generate payment message'}</button>
+      </> : <p className="sender-summary">Sending as <span>{savedName}</span> · <button ref={editNameRef} className="text-button" type="button" disabled={busy || savingName} aria-expanded="false" onClick={editName}>Edit</button></p>)}
+      {nameFeedback && <p className="name-feedback" role="status">{nameFeedback}</p>}
+      {nameDirty && <p className="name-feedback">Save or cancel your name edit before generating a message.</p>}
+      </div>
+      <button className="button ai-button" onClick={generate} disabled={busy || savingName || settings.loading || !!settings.error || !savedName || nameDirty || !!message}><Icon name="ai" size={18} />{busy ? 'Generating…' : item.status === 'paid' ? 'Generate thank-you message' : 'Generate payment message'}</button>
       {error && <ErrorNotice message={error} retry={!message && !busy && !savingName && !!savedName && !nameDirty ? generate : undefined} />}
       {staleDraft && <div className="notice attention" role="status">Payment status changed since this draft was written. Clear it to generate current guidance, or edit it before copying.</div>}
       {source && <p className="ai-source">{source} · editable draft</p>}
-      <div className="field"><label htmlFor="ai-message">Review and edit your message</label><textarea ref={draftRef} id="ai-message" rows={7} value={message} readOnly={busy} aria-busy={busy} onChange={(event) => { setMessage(event.target.value); setDraftStatus(item.status) }} placeholder="Your AI-assisted message will appear here. You can also write your own." /></div>
+      <div className="field draft-field"><label htmlFor="ai-message">Review and edit your message</label><textarea ref={draftRef} id="ai-message" rows={6} value={message} readOnly={busy} aria-busy={busy} aria-describedby="draft-help" onChange={(event) => { setMessage(event.target.value); setDraftStatus(item.status) }} placeholder="Your AI-assisted message will appear here. You can also write your own." /><small className="muted" id="draft-help">Nothing is sent automatically.</small></div>
       <div className="ai-actions"><CopyButton text={staleDraft ? '' : message} label="Copy message" /><button ref={clearTriggerRef} className="text-button" disabled={busy || !message} onClick={() => setConfirmClear(true)}>Clear draft</button></div>
-      {confirmClear && <ConfirmDialog title="Clear this draft?" description="This will remove your current message, including any edits." cancelLabel="Keep draft" confirmLabel="Clear draft" onCancel={() => setConfirmClear(false)} onConfirm={clearDraft} returnFocusRef={clearTriggerRef} fallbackFocusRef={draftRef} />}
-      <small className="muted">Check every fact before sharing. Edits stay in this tab only. Copy the payment link separately.</small>
+      {confirmClear && blocker.state !== 'blocked' && <ConfirmDialog title="Clear this draft?" description="This will remove your current message, including any edits." cancelLabel="Keep draft" confirmLabel="Clear draft" onCancel={() => setConfirmClear(false)} onConfirm={clearDraft} returnFocusRef={clearTriggerRef} fallbackFocusRef={draftRef} />}
+      {blocker.state === 'blocked' && <ConfirmDialog title="Leave this draft?" description="Your message edits will be lost." cancelLabel="Keep editing" confirmLabel="Leave page" onCancel={() => { setConfirmClear(false); blocker.reset() }} onConfirm={() => blocker.proceed()} returnFocusRef={draftRef} fallbackFocusRef={draftRef} />}
   </section>
 }
 
 function ActivityTimeline({ events = [] }) {
-  return <section className="card detail-card activity-panel" aria-label="Payment activity"><h2>Payment activity</h2><p className="muted">Recorded events only · Africa/Nairobi (UTC+3). Attempt activity does not change the request’s payment status.</p><ol className="activity-list">{events.map((event, index) => <li className={`activity-event ${event.kind}`} key={`${event.kind}-${index}`}><span className="activity-icon"><Icon name={event.kind === 'payment_confirmed' ? 'paid' : event.kind === 'attempt_failed' ? 'overdue' : 'pending'} size={17} /></span><div><strong>{event.label}</strong><time dateTime={event.occurred_at}>{paymentTime(event.occurred_at)} EAT</time></div></li>)}</ol></section>
+  return <section className="card detail-card activity-panel" aria-label="Payment activity"><h2>Payment activity</h2><p className="muted">Recorded activity for this request.</p><ol className="activity-list">{events.map((event, index) => <li className={`activity-event ${event.kind}`} key={`${event.kind}-${index}`}><span className="activity-icon"><Icon name={event.kind === 'payment_confirmed' ? 'paid' : event.kind === 'attempt_failed' ? 'overdue' : 'pending'} size={17} /></span><div><strong>{event.label}</strong><time dateTime={event.occurred_at}>{paymentTime(event.occurred_at)} EAT</time></div></li>)}</ol></section>
 }
 
 function PaymentConfirmation({ confirmation }) {
-  return <section className="payment-confirmation" aria-label="Sandbox payment confirmation"><div className="payment-success" role="status"><Icon name="paid" size={36} /><h2>Payment confirmed</h2><p>Verified server-side after PayPal capture.</p></div><span className="sandbox-label">Sandbox · Test payment only</span><dl><div><dt>Service</dt><dd className="preserve-text">{confirmation.service_description}</dd></div><div><dt>Paid amount</dt><dd><strong>{money(confirmation.amount_cents)} {confirmation.currency}</strong></dd></div>{confirmation.freelancer_display_name && <div><dt>Freelancer</dt><dd>{confirmation.freelancer_display_name}</dd></div>}<div><dt>Confirmed</dt><dd><time dateTime={confirmation.confirmed_at}>{paymentTime(confirmation.confirmed_at)} EAT</time><small>Africa/Nairobi (UTC+3)</small></dd></div><div><dt>PayPal capture reference</dt><dd className="capture-reference">{confirmation.capture_reference}</dd></div></dl><p className="confirmation-note">Sandbox payment confirmation only. No real money was charged. This is not a tax invoice.</p><button className="button secondary no-print" onClick={() => window.print()}>Print confirmation</button></section>
+  return <section className="payment-confirmation" aria-label="Sandbox payment confirmation"><div className="payment-success" role="status"><Icon name="paid" size={36} /><h2>Payment confirmed</h2><p>Your sandbox payment is complete.</p></div><span className="sandbox-label">Sandbox · Test payment only</span><dl><div><dt>Service</dt><dd className="preserve-text">{confirmation.service_description}</dd></div><div><dt>Paid amount</dt><dd><strong>{money(confirmation.amount_cents)} {confirmation.currency}</strong></dd></div>{confirmation.freelancer_display_name && <div><dt>Freelancer</dt><dd>{confirmation.freelancer_display_name}</dd></div>}<div><dt>Confirmed</dt><dd><time dateTime={confirmation.confirmed_at}>{paymentTime(confirmation.confirmed_at)} EAT</time><small className="confirmation-timezone">Africa/Nairobi (UTC+3)</small></dd></div><div><dt>PayPal capture reference</dt><dd className="capture-reference">{confirmation.capture_reference}</dd></div></dl><p className="confirmation-note">Sandbox payment confirmation only. No real money was charged. This is not a tax invoice.</p><button className="button secondary no-print" onClick={() => window.print()}>Print confirmation</button></section>
 }
 
 function Details() {
@@ -271,8 +304,8 @@ function Details() {
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !item ? <Loading /> : item && <>
       <PageHeading eyebrow={`Payment request #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
-      <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}<small>Africa/Nairobi (UTC+3)</small></dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(item.paid_at))} EAT</dd></div>}</dl></section>
-      <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><p className="muted">{item.status === 'paid' ? 'This private link shows the recorded payment confirmation, not another checkout.' : 'Anyone with this link can view the service, amount, and due date, then pay in sandbox.'}</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
+      <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}</dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{paymentTime(item.paid_at)} EAT</dd></div>}</dl></section>
+      <section className="card detail-card payment-link-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" size={1} value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><p className="muted link-privacy">Anyone with this link can view this request’s payment details.</p></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
       {data.confirmation && <div className="card detail-card confirmation-card"><PaymentConfirmation confirmation={data.confirmation} /></div>}
     </>}
   </>
@@ -322,4 +355,6 @@ function RoutedApp() {
   return <Shell><Routes key={location.pathname}><Route path="/" element={<Dashboard />} /><Route path="/requests" element={<Requests />} /><Route path="/requests/new" element={<NewRequest />} /><Route path="/requests/:id" element={<Details />} /><Route path="*" element={<><h1>Page not found</h1><Link to="/">Return to dashboard</Link></>} /></Routes></Shell>
 }
 
-export default function App() { return <BrowserRouter><RoutedApp /></BrowserRouter> }
+const router = createBrowserRouter([{ path: '*', element: <RoutedApp /> }])
+
+export default function App() { return <RouterProvider router={router} /> }
