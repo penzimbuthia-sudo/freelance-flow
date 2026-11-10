@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from . import ai, payments
 from .activity import activity_for, record_event
+from .confirmation import payment_confirmation
 from .db import get_db, now, transaction
 from .errors import AppError
 from .guidance import explain_payment
@@ -74,7 +75,8 @@ def new_request():
 @api.get("/requests/<int:request_id>")
 def request_details(request_id):
     row = find_request(request_id)
-    return jsonify({"request": serialize(row), "guidance": explain_payment(row), "activity": activity_for(row)})
+    return jsonify({"request": serialize(row), "guidance": explain_payment(row),
+                    "activity": activity_for(row), "confirmation": payment_confirmation(row)})
 
 
 @api.get("/dashboard")

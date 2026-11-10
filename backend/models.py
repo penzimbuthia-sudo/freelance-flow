@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from flask import current_app
 
 from .activity import record_event
+from .confirmation import payment_confirmation
 from .db import get_db, now, transaction
 from .errors import AppError
 
@@ -44,6 +45,7 @@ def serialize(row, public=False):
             (row["id"],),
         ).fetchone()
         result["active_order_id"] = attempt["order_id"] if attempt else None
+        result["confirmation"] = payment_confirmation(row)
     return result
 
 

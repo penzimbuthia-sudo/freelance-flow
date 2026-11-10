@@ -159,6 +159,23 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .activity-event.attempt_failed .activity-icon { color: #A22027; background: #FFF0F0; }
 .activity-event strong { display: block; font-size: .8rem; font-weight: 600; }
 .activity-event time { display: block; font-size: .73rem; color: var(--muted); margin-top: 5px; }
+.confirmation-card { margin-top: 24px; max-width: 650px; border-top: 3px solid #16845B; }
+.payment-confirmation { overflow-wrap: anywhere; }
+.payment-confirmation .sandbox-label { margin-bottom: 18px; }
+.payment-confirmation dl > div { grid-template-columns: minmax(85px, 120px) minmax(0, 1fr); }
+.payment-confirmation .confirmation-note { color: var(--muted); font-size: .75rem; margin: 20px 0; }
+.capture-reference { font-family: ui-monospace, monospace; font-size: .8rem; }
+@media print {
+  @page { margin: 16mm; }
+  body { background: #fff; }
+  body * { visibility: hidden; }
+  .payment-confirmation, .payment-confirmation * { visibility: visible; }
+  .payment-confirmation { position: absolute; top: 0; left: 0; width: 100%; padding: 0; color: #142C4E; background: #fff; }
+  .payment-confirmation .no-print { display: none !important; }
+  .sidebar, .topbar, .workspace-footer, .back-link, .page-heading, .details-grid, .client-header, .client-intro, .client-footer { display: none !important; }
+  html, body, #root, .app-shell, .main-shell, .main-shell main, .client-page, .client-main { min-height: 0 !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  .checkout-card, .confirmation-card { border: 0; box-shadow: none; padding: 0; margin: 0; }
+}
 @media (min-width: 1600px) { .main-shell main { padding-top: 52px; } }
 @media (max-width: 1150px) {
   .sidebar { width: 218px; padding-inline: 14px; }
