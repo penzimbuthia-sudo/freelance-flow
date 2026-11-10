@@ -1,8 +1,8 @@
 """Live Gemini smoke test; deliberately separate from mocked automated tests."""
 from datetime import timedelta
 
-from backend.ai import generate_message
 from backend import create_app
+from backend.ai import generate_message
 from backend.errors import AppError
 from backend.models import today
 from backend.settings import get_settings
