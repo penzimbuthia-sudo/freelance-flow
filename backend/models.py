@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 
 from flask import current_app
 
-from .db import get_db, now
+from .activity import record_event
+from .db import get_db, now, transaction
 from .errors import AppError
 
 
@@ -75,10 +76,12 @@ def create_request(data):
     if data.get("currency", "USD") != "USD":
         raise AppError("validation_error", "Only USD is supported.")
     timestamp = now()
-    cursor = get_db().execute(
-        """INSERT INTO payment_requests
-        (public_token, client_name, service_description, amount_cents, due_date, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (secrets.token_urlsafe(32), fields["client_name"], fields["service_description"], cents, due, timestamp, timestamp),
-    )
+    with transaction() as db:
+        cursor = db.execute(
+            """INSERT INTO payment_requests
+            (public_token, client_name, service_description, amount_cents, due_date, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (secrets.token_urlsafe(32), fields["client_name"], fields["service_description"], cents, due, timestamp, timestamp),
+        )
+        record_event(db, cursor.lastrowid, "request_created", occurred_at=timestamp)
     return find_request(cursor.lastrowid)

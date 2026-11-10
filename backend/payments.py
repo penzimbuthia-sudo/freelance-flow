@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from flask import current_app
 
+from .activity import record_event
 from .db import get_db, now, transaction
 from .errors import AppError
 from .models import find_request
@@ -26,10 +27,13 @@ def within_retry_window(timestamp):
 def record_error(attempt_id, error):
     state = {"payment_declined": "failed", "order_voided": "failed", "order_not_approved": "created"}.get(error.code, "uncertain")
     with transaction() as db:
-        db.execute(
+        changed = db.execute(
             "UPDATE payment_attempts SET state=?, diagnostic=?, updated_at=? WHERE id=? AND state NOT IN ('failed','completed')",
             (state, error.code, now(), attempt_id),
         )
+        if changed.rowcount and state == "failed":
+            attempt = db.execute("SELECT request_id FROM payment_attempts WHERE id=?", (attempt_id,)).fetchone()
+            record_event(db, attempt["request_id"], "attempt_failed", attempt_id)
         if error.code == "order_not_approved":
             db.execute("UPDATE payment_attempts SET capture_started_at=NULL WHERE id=?", (attempt_id,))
     # Only fixed application codes: never raw upstream bodies, keys, or buyer details.
@@ -82,6 +86,7 @@ def create_order(token):
                     # Only retire definitive missing/voided orders with no capture
                     # started. Never rotate on timeouts, auth errors or uncertainty.
                     db.execute("UPDATE payment_attempts SET state='failed', diagnostic='order_unavailable', updated_at=? WHERE id=?", (now(), attempt_id))
+                    record_event(db, row["id"], "order_unavailable", attempt_id)
                     new_attempt(db, row["id"])
                     continue
                 if not within_retry_window(attempt["created_at"]):
@@ -93,6 +98,7 @@ def create_order(token):
                 bound_attempt = dict(attempt) | {"order_id": order_id}
                 verify_order(order, row, bound_attempt, service().merchant_id)
                 db.execute("UPDATE payment_attempts SET order_id=?, state='created', updated_at=?, diagnostic=NULL WHERE id=?", (order_id, now(), attempt_id))
+                record_event(db, row["id"], "order_created", attempt_id)
                 return {"order_id": order_id}
     except AppError as error:
         if attempt_id:
@@ -139,6 +145,7 @@ def capture_order(token, order_id):
             timestamp = now()
             db.execute("UPDATE payment_attempts SET state='completed', capture_id=?, diagnostic=NULL, updated_at=? WHERE id=?", (capture_id, timestamp, attempt_id))
             db.execute("UPDATE payment_requests SET status='paid', capture_id=?, paid_at=?, updated_at=? WHERE id=? AND status='unpaid'", (capture_id, timestamp, timestamp, row["id"]))
+            record_event(db, row["id"], "payment_confirmed", attempt_id, timestamp)
             return {"status": "paid", "capture_id": capture_id}
     except AppError as error:
         record_error(attempt_id, error)

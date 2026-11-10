@@ -5,6 +5,7 @@ import './App.css'
 
 const money = (cents) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 const dueDate = (value) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`))
+const paymentTime = (value) => new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(value))
 
 async function api(path, options = {}) {
   let response
@@ -241,6 +242,10 @@ function AIPanel({ item, guidance }) {
   </section>
 }
 
+function ActivityTimeline({ events = [] }) {
+  return <section className="card detail-card activity-panel" aria-label="Payment activity"><h2>Payment activity</h2><p className="muted">Recorded events only · Africa/Nairobi (UTC+3). Attempt activity does not change the request’s payment status.</p><ol className="activity-list">{events.map((event, index) => <li className={`activity-event ${event.kind}`} key={`${event.kind}-${index}`}><span className="activity-icon"><Icon name={event.kind === 'payment_confirmed' ? 'paid' : event.kind === 'attempt_failed' ? 'overdue' : 'pending'} size={17} /></span><div><strong>{event.label}</strong><time dateTime={event.occurred_at}>{paymentTime(event.occurred_at)} EAT</time></div></li>)}</ol></section>
+}
+
 function Details() {
   const { id } = useParams()
   const location = useLocation()
@@ -253,7 +258,7 @@ function Details() {
     {loading && !item ? <Loading /> : item && <>
       <PageHeading eyebrow={`PAYMENT REQUEST #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
       <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}<small>Africa/Nairobi (UTC+3)</small></dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(item.paid_at))} EAT</dd></div>}</dl></section>
-      <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><p className="muted">{item.status === 'paid' ? 'This private link shows the recorded payment confirmation, not another checkout.' : 'Anyone with this link can view the service, amount, and due date, then pay in sandbox.'}</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section></div><AIPanel item={item} guidance={data.guidance} /></div>
+      <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><p className="muted">{item.status === 'paid' ? 'This private link shows the recorded payment confirmation, not another checkout.' : 'Anyone with this link can view the service, amount, and due date, then pay in sandbox.'}</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
     </>}
   </>
 }

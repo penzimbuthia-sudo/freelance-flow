@@ -4,7 +4,8 @@ from urllib.parse import urlsplit
 from flask import Blueprint, current_app, jsonify, request
 
 from . import ai, payments
-from .db import get_db, now
+from .activity import activity_for, record_event
+from .db import get_db, now, transaction
 from .errors import AppError
 from .guidance import explain_payment
 from .models import create_request, find_request, serialize, status, today
@@ -73,7 +74,7 @@ def new_request():
 @api.get("/requests/<int:request_id>")
 def request_details(request_id):
     row = find_request(request_id)
-    return jsonify({"request": serialize(row), "guidance": explain_payment(row)})
+    return jsonify({"request": serialize(row), "guidance": explain_payment(row), "activity": activity_for(row)})
 
 
 @api.get("/dashboard")
@@ -139,10 +140,19 @@ def order_capture(token):
 
 @api.post("/public/requests/<token>/cancel")
 def order_cancel(token):
-    row = find_request(token=token)
     order_id = body().get("order_id")
-    if not isinstance(order_id, str):
+    if not isinstance(order_id, str) or not 1 <= len(order_id) <= 64 or not order_id.isalnum():
         raise AppError("validation_error", "An order_id is required.")
     # A browser cancellation is advisory, not proof an order cannot still capture.
-    get_db().execute("UPDATE payment_attempts SET diagnostic='buyer_cancelled', updated_at=? WHERE request_id=? AND order_id=? AND state!='completed'", (now(), row["id"], order_id))
+    with transaction() as db:
+        row = find_request(token=token)
+        attempt = db.execute("SELECT * FROM payment_attempts WHERE request_id=? AND order_id=?", (row["id"], order_id)).fetchone()
+        if not attempt:
+            raise AppError("order_not_bound", "This order does not belong to this payment request.", 409)
+        if row["status"] == "paid" or attempt["state"] == "completed":
+            return jsonify({"status": "paid", "message": "Payment already confirmed; cancellation did not change it."})
+        if attempt["state"] != "failed":
+            if not attempt["capture_started_at"]:
+                db.execute("UPDATE payment_attempts SET diagnostic='buyer_cancelled', updated_at=? WHERE id=?", (now(), attempt["id"]))
+            record_event(db, row["id"], "attempt_cancelled", attempt["id"])
     return jsonify({"status": "cancelled", "message": "Checkout cancelled. No paid state was recorded."})

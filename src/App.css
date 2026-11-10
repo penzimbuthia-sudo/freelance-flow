@@ -150,6 +150,15 @@ dd small { display: block; margin-top: 3px; color: var(--muted); font-size: .73r
 .payment-success h2 { margin: 12px 0 6px; }
 .payment-success p { font-size: .85rem; }
 .client-footer { text-align: center; font-size: .73rem; color: var(--muted); margin-top: 25px; line-height: 1.9; }
+.activity-panel > p { margin: 10px 0 18px; font-size: .75rem; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-event { display: flex; gap: 12px; align-items: flex-start; border-left: 2px solid var(--border); padding: 0 0 20px 16px; margin-left: 9px; }
+.activity-event:last-child { padding-bottom: 0; }
+.activity-icon { background: #FFF0CE; color: #805008; border-radius: 50%; padding: 4px; display: inline-flex; margin-left: -30px; flex-shrink: 0; }
+.activity-event.payment_confirmed .activity-icon { color: #076342; background: #DAF5E9; }
+.activity-event.attempt_failed .activity-icon { color: #A22027; background: #FFF0F0; }
+.activity-event strong { display: block; font-size: .8rem; font-weight: 600; }
+.activity-event time { display: block; font-size: .73rem; color: var(--muted); margin-top: 5px; }
 @media (min-width: 1600px) { .main-shell main { padding-top: 52px; } }
 @media (max-width: 1150px) {
   .sidebar { width: 218px; padding-inline: 14px; }

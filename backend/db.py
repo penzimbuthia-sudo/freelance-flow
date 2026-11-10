@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt
 ON payment_attempts(request_id) WHERE state NOT IN ('failed', 'completed');
+CREATE TABLE IF NOT EXISTS payment_events (
+    id INTEGER PRIMARY KEY,
+    request_id INTEGER NOT NULL REFERENCES payment_requests(id),
+    attempt_id TEXT REFERENCES payment_attempts(id),
+    kind TEXT NOT NULL CHECK(kind IN ('request_created','order_created','payment_confirmed','attempt_cancelled','attempt_failed','order_unavailable')),
+    occurred_at TEXT NOT NULL,
+    event_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS payment_events_request ON payment_events(request_id, occurred_at, id);
 """
 
 
