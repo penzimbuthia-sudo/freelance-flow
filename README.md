@@ -111,6 +111,7 @@ Linux may need `npx playwright install-deps chromium` (administrator approval/sy
 ## Architecture and API
 
 - `src/App.jsx`, `src/App.css`, `src/index.css`: dashboard, searchable/filterable list, create/details, minimal token payment page. No chatbot, charts, or autonomous sending.
+- Typography uses self-hosted Inter (`@fontsource/inter`, normal Latin 400/500/600/700, swap loading) with system sans-serif fallback. Shared type-scale tokens live in `src/index.css`; form controls, the Clear draft dialog and print confirmation inherit the same font. Browser checks verify rendered fonts, long-content reflow and native Chromium 200% zoom using an isolated test-only extension, never the user's browser profile.
 - `backend/config.py`, `db.py`, `models.py`: Flask configuration, SQLite initialization, request validation/serialization.
 - `backend/routes.py`, `ai.py`, `paypal.py`, `payments.py`: JSON routes, Gemini adapter, sandbox REST adapter, persisted payment state machine.
 - `tests/`: focused mocked backend tests. `browser-tests/`: real Chromium checks of the local app, not live integrations.

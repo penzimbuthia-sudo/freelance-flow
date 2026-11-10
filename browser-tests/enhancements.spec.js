@@ -150,7 +150,7 @@ test('context guidance, persisted activity, verified confirmation and print — 
     await expect(page.getByRole('heading', { name: 'Your payment record', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Payment confirmed', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Print confirmation' })).toHaveCount(0)
-    await expect(page.getByText('SERVER-VERIFIED PAYMENT DETAILS', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Server-verified payment details', { exact: true })).toHaveCount(0)
     await page.unroute('**/api/public/requests/*')
     await page.goto('/pay/invalid-token?success=true')
     await expect(page.getByRole('alert')).toContainText('Payment request not found')

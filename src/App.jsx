@@ -79,7 +79,7 @@ function Shell({ children }) {
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
       <Link to="/" className="brand-link" aria-label="Freelance Flow home"><Brand /></Link>
-      <div className="workspace-label">YOUR WORKSPACE</div>
+      <div className="workspace-label">Your workspace</div>
       <nav aria-label="Main navigation">
         <NavLink to="/" end><Icon name="dashboard" />Dashboard</NavLink>
         <NavLink to="/requests"><Icon name="requests" />Payment requests</NavLink>
@@ -87,7 +87,7 @@ function Shell({ children }) {
       <div className="sidebar-note"><span className="sandbox-dot" />Sandbox workspace<p>Made for a calmer payday.</p></div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><span>AI PAYMENT COMPANION</span><span className="sandbox-label">PayPal sandbox · USD only</span></header>
+      <header className="topbar"><span>AI payment companion</span><span className="sandbox-label">PayPal sandbox · USD only</span></header>
       <main id="main" tabIndex="-1">{children}</main>
       <footer className="workspace-footer">Single local workspace · Fictional demo data only · Due dates use Africa/Nairobi (UTC+3)</footer>
     </div>
@@ -118,7 +118,7 @@ function RequestTable({ requests, filtered = false }) {
 function Dashboard() {
   const { data, error, loading, reload } = useResource('/dashboard')
   return <>
-    <PageHeading eyebrow="A LITTLE CLARITY, EVERY DAY" title="Your money, in view." description="Less chasing payments. More time for your work." action={<NewButton />} />
+    <PageHeading eyebrow="A little clarity, every day" title="Your money, in view." description="Less chasing payments. More time for your work." action={<NewButton />} />
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !data ? <Loading /> : data && <>
       <section className="stats" aria-label="Payment totals">
@@ -136,7 +136,7 @@ function Requests() {
   const [filter, setFilter] = useState('all')
   const requests = data?.requests.filter((item) => (filter === 'all' || item.status === filter) && `${item.client_name} ${item.service_description}`.toLowerCase().includes(search.toLowerCase())) || []
   return <>
-    <PageHeading eyebrow="KEEP EVERY REQUEST IN SIGHT" title="Payment requests" description="The details, the status, and the next step. All in one place." action={<NewButton />} />
+    <PageHeading eyebrow="Keep every request in sight" title="Payment requests" description="The details, the status, and the next step. All in one place." action={<NewButton />} />
     <section className="card requests-card">
       <div className="filters"><div className="search-field"><Icon name="search" /><label className="sr-only" htmlFor="search">Search requests</label><input id="search" type="search" placeholder="Search client or service…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="filter-field"><label htmlFor="status-filter">Status</label><select id="status-filter" value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="overdue">Overdue</option><option value="paid">Paid</option></select></div></div>
       {error && <ErrorNotice message={error} retry={reload} />}
@@ -162,7 +162,7 @@ function NewRequest() {
   }
   return <>
     <Link className="back-link" to="/requests">← Payment requests</Link>
-    <PageHeading eyebrow="ONE SIMPLE STEP" title="New payment request" description="Save the details first. Draft a message and share the payment link next." />
+    <PageHeading eyebrow="One simple step" title="New payment request" description="Save the details first. Draft a message and share the payment link next." />
     <form className="card request-form" onSubmit={submit}>
       <h2>Request details</h2><p className="muted">All fields are required. Use fictional client information for this demo.</p>
       <div className="field"><label htmlFor="client_name">Client name</label><input id="client_name" name="client_name" value={form.client_name} onChange={change} required maxLength={120} placeholder="e.g. Alex Demo" autoComplete="off" /></div>
@@ -270,7 +270,7 @@ function Details() {
     {location.state?.created && <div className="notice success" role="status"><Icon name="paid" />Request saved. Your client payment link is ready.</div>}
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !item ? <Loading /> : item && <>
-      <PageHeading eyebrow={`PAYMENT REQUEST #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
+      <PageHeading eyebrow={`Payment request #${item.id}`} title={item.client_name} description="Saved details, a thoughtful message, and one simple payment link." action={<Status value={item.status} />} />
       <div className="details-grid"><div className="details-left"><section className="card detail-card"><div className="card-heading"><h2>Request summary</h2><button className="text-button" disabled={loading} onClick={reload}>{loading ? 'Refreshing…' : 'Refresh status'}</button></div><div className="detail-amount">{money(item.amount_cents)} <span>USD</span></div><dl><div><dt>Client</dt><dd>{item.client_name}</dd></div><div><dt>Service</dt><dd className="preserve-text">{item.service_description}</dd></div><div><dt>Due date</dt><dd>{dueDate(item.due_date)}<small>Africa/Nairobi (UTC+3)</small></dd></div>{item.paid_at && <div><dt>Paid on</dt><dd>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Nairobi' }).format(new Date(item.paid_at))} EAT</dd></div>}</dl></section>
       <section className="card detail-card"><div className="panel-title"><Icon name="link" /><h2>{item.status === 'paid' ? 'Payment confirmation link' : 'Client payment link'}</h2></div><p className="muted">{item.status === 'paid' ? 'This private link shows the recorded payment confirmation, not another checkout.' : 'Anyone with this link can view the service, amount, and due date, then pay in sandbox.'}</p><label className="sr-only" htmlFor="payment-url">Client payment URL</label><input className="url-input" id="payment-url" value={item.payment_url} readOnly onFocus={(event) => event.target.select()} /><div className="link-actions"><CopyButton text={item.payment_url} label="Copy link" /><a className="text-link" href={item.payment_url} target="_blank" rel="noreferrer">Open client page ↗</a></div><small className="muted">Sandbox only. No real money moves.</small></section><ActivityTimeline events={data.activity} /></div><AIPanel item={item} guidance={data.guidance} /></div>
       {data.confirmation && <div className="card detail-card confirmation-card"><PaymentConfirmation confirmation={data.confirmation} /></div>}
@@ -295,7 +295,7 @@ function ClientPayment() {
     finally { setBusy(false); await reload() }
   }
   return <div className="client-page"><a className="skip-link" href="#main">Skip to content</a><header className="client-header"><Brand /><span className="sandbox-label">PayPal sandbox</span></header><main className="client-main" id="main" tabIndex="-1">
-    <div className="client-intro"><p className="eyebrow">{item?.confirmation ? 'SERVER-VERIFIED PAYMENT DETAILS' : 'PAYPAL SANDBOX PAYMENT DETAILS'}</p><h1>{item?.confirmation ? 'Your payment confirmation' : item?.status === 'paid' ? 'Your payment record' : 'Your payment request'}</h1><p className="muted">{item?.confirmation ? 'Keep a copy of your sandbox payment details.' : item?.status === 'paid' ? 'No further payment is requested.' : 'Review the details below before paying.'}</p></div>
+    <div className="client-intro"><p className="eyebrow">{item?.confirmation ? 'Server-verified payment details' : 'PayPal sandbox payment details'}</p><h1>{item?.confirmation ? 'Your payment confirmation' : item?.status === 'paid' ? 'Your payment record' : 'Your payment request'}</h1><p className="muted">{item?.confirmation ? 'Keep a copy of your sandbox payment details.' : item?.status === 'paid' ? 'No further payment is requested.' : 'Review the details below before paying.'}</p></div>
     {error && <ErrorNotice message={error} retry={reload} />}
     {loading && !item ? <Loading /> : item && <section className="card checkout-card">
       {item.status === 'paid' ? item.confirmation ? <PaymentConfirmation confirmation={item.confirmation} /> : <div className="notice info">This request is recorded as paid, but verified confirmation details are unavailable. Contact the freelancer; do not pay again.</div> : <>
