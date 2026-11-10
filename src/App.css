@@ -4,8 +4,7 @@
 .brand > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .brand-light { font-weight: 400; }
 .brand-link { color: white; text-decoration: none; padding-left: 8px; }
-.brand-mark { color: white; background: var(--blue); border-radius: 9px; width: 36px; height: 38px; flex-shrink: 0; display: inline-flex; justify-content: center; align-items: center; font-size: 1.7rem; font-weight: 700; line-height: 1; }
-.brand-mark span { color: #C4B5FD; transform: translateY(4px); }
+.brand-mark { display: block; width: 36px; height: 36px; flex-shrink: 0; }
 .workspace-label { color: #B6C8E2; font-size: var(--text-support); font-weight: 500; margin: 48px 14px 14px; }
 .sidebar nav { display: grid; gap: 8px; }
 .sidebar nav a { display: flex; align-items: center; gap: 12px; padding: 12px 15px; min-height: 48px; min-width: 0; color: #D6E2F2; text-decoration: none; border-radius: 8px; font-size: var(--text-control); font-weight: 500; }

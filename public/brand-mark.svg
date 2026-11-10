@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="brand-title">
+  <title id="brand-title">Freelance Flow FF monogram</title>
+  <rect width="64" height="64" rx="14" fill="#0F2D5B"/>
+  <rect x="4" y="4" width="56" height="56" rx="10" fill="#2563EB"/>
+  <g fill="#FFFFFF">
+    <path d="M8 12H28V20H16V28H24V36H16V52H8Z"/>
+    <path d="M36 12H56V20H44V28H52V36H44V52H36Z"/>
+  </g>
+</svg>

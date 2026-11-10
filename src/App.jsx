@@ -77,7 +77,7 @@ function Status({ value }) {
 }
 
 function Brand() {
-  return <span className="brand"><span className="brand-mark">f<span>f</span></span><span>Freelance<span className="brand-light"> Flow</span></span></span>
+  return <span className="brand"><img className="brand-mark" src="/brand-mark.svg" width="36" height="36" alt="" aria-hidden="true" /><span>Freelance<span className="brand-light"> Flow</span></span></span>
 }
 
 function Shell({ children }) {
