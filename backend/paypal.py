@@ -1,3 +1,4 @@
+import logging
 import re
 import threading
 import time
@@ -8,6 +9,29 @@ import requests
 from .errors import AppError
 
 BASE_URL = "https://api-m.sandbox.paypal.com"
+logger = logging.getLogger(__name__)
+
+
+def response_diagnostics(response):
+    """Allowlist correlation/error codes only; never log raw responses or headers."""
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    def code(value):
+        return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value) else None
+
+    details = data.get("details", [])
+    issues = [code(item.get("issue")) for item in details[:10] if isinstance(item, dict)] if isinstance(details, list) else []
+    return {
+        "http_status": response.status_code,
+        "debug_id": code(data.get("debug_id")) or code(response.headers.get("PayPal-Debug-Id")),
+        "name": code(data.get("name")),
+        "issues": [issue for issue in issues if issue],
+    }
 
 
 class PayPalService:
@@ -37,6 +61,10 @@ class PayPalService:
                     f"{BASE_URL}/v1/oauth2/token", auth=(self.client_id, self.secret),
                     data={"grant_type": "client_credentials"}, timeout=(5, 15),
                 )
+                if not response.ok:
+                    diagnostics = response_diagnostics(response)
+                    logger.warning("PayPal sandbox OAuth failure: %s", diagnostics)
+                    raise AppError("paypal_auth_error", "PayPal sandbox authentication failed. Check the seller app credentials.", 502, diagnostics)
                 response.raise_for_status()
                 data = response.json()
                 self._token = data["access_token"]
@@ -54,7 +82,14 @@ class PayPalService:
             if response.status_code == 401:
                 self._expires = 0  # Refresh on the next user-initiated attempt, not by replaying a POST.
             if not response.ok:
-                raise AppError("paypal_upstream_error", "PayPal could not confirm the operation. Check payment status before retrying.", 502)
+                diagnostics = response_diagnostics(response)
+                logger.warning("PayPal sandbox %s failure: %s", method, diagnostics)
+                # Only an authoritative Orders GET 404 is safe to treat as missing.
+                if (method == "GET" and re.fullmatch(r"/v2/checkout/orders/[A-Za-z0-9]{1,64}", path)
+                        and diagnostics["http_status"] == 404 and diagnostics["name"] == "RESOURCE_NOT_FOUND"
+                        and "INVALID_RESOURCE_ID" in diagnostics["issues"]):
+                    raise AppError("paypal_order_not_found", "This sandbox order is no longer available.", 502, diagnostics)
+                raise AppError("paypal_upstream_error", "PayPal could not confirm the operation. Check payment status before retrying.", 502, diagnostics)
             result = response.json()
             if not isinstance(result, dict):
                 raise ValueError()

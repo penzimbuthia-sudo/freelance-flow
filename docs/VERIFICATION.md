@@ -1,5 +1,7 @@
 # Verification record
 
+**November 10 update:** the live PayPal pre-login failure was reproduced and its stale-order reuse cause fixed. 110 backend tests, lint, build, and both browser regressions pass. Actual sandbox OAuth/create/GET and popup buyer-login rendering were verified, but buyer authentication/approval/capture were not. See [PayPal diagnosis and exact retry steps](PAYPAL_CHECKOUT_DEBUG.md). The November 9 results below are historical; their missing-credentials limitation no longer describes the PayPal checks above.
+
 This document distinguishes local/mocked checks from live integrations. Checked on November 9, 2026, on Linux with Python 3.14.5 and Node 25.9.0.
 
 ## Completed

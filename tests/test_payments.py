@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import sqlite3
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,7 +18,8 @@ def unpaid(client, saved):
 
 def test_create_and_capture_and_duplicates(client, saved, paypal, approved):
     path, order_id = approved
-    assert client.post(path + "/orders").json["order_id"] == order_id
+    # An approved order must be reconciled, not sent through buyer approval again.
+    assert client.post(path + "/orders").json["error"]["code"] == "payment_pending"
     assert len(paypal.create_calls) == 1
     for _ in range(2):
         response = client.post(path + "/capture", json={"order_id": order_id})
@@ -217,3 +219,166 @@ def test_lookup_failure_does_not_replay_capture(client, saved, paypal, approved,
     assert client.post(path + "/capture", json={"order_id": order_id}).status_code == 502
     assert len(paypal.capture_calls) == 0
     unpaid(client, saved)
+
+
+@pytest.mark.parametrize("unavailable", ["missing", "VOIDED"])
+def test_unavailable_uncaptured_order_is_replaced(app, client, saved, paypal, monkeypatch, unavailable):
+    path = public_path(saved)
+    old_id = client.post(path + "/orders").json["order_id"]
+    original = paypal.get_order
+
+    def lookup(order_id):
+        if order_id == old_id and unavailable == "missing":
+            raise AppError("paypal_order_not_found", "Unavailable", 502)
+        return original(order_id)
+
+    monkeypatch.setattr(paypal, "get_order", lookup)
+    if unavailable == "VOIDED":
+        paypal.orders[old_id]["status"] = "VOIDED"
+    response = client.post(path + "/orders")
+    assert response.status_code == 201
+    new_id = response.json["order_id"]
+    assert new_id != old_id
+    assert client.post(path + "/orders").json["order_id"] == new_id
+    assert len(set(paypal.create_calls)) == 2
+    assert not paypal.capture_calls
+    with app.app_context():
+        old = get_db().execute("SELECT * FROM payment_attempts WHERE order_id=?", (old_id,)).fetchone()
+        assert old["state"] == "failed"
+        assert old["diagnostic"] == "order_unavailable"
+        assert get_db().execute("SELECT COUNT(*) FROM payment_attempts").fetchone()[0] == 2
+    unpaid(client, saved)
+
+
+@pytest.mark.parametrize("code", ["paypal_uncertain", "paypal_auth_error", "paypal_upstream_error", "payment_mismatch"])
+def test_cached_order_lookup_error_never_creates_replacement(client, saved, paypal, monkeypatch, code):
+    path = public_path(saved)
+    client.post(path + "/orders")
+
+    def failed_lookup(_):
+        raise AppError(code, "Lookup failed", 502)
+
+    monkeypatch.setattr(paypal, "get_order", failed_lookup)
+    assert client.post(path + "/orders").json["error"]["code"] == code
+    assert len(paypal.create_calls) == 1
+    assert not paypal.capture_calls
+
+
+def test_cached_order_is_verified_before_reuse(client, saved, paypal):
+    path = public_path(saved)
+    order_id = client.post(path + "/orders").json["order_id"]
+    paypal.orders[order_id]["purchase_units"][0]["payee"]["merchant_id"] = "OTHERSELLER"
+    assert client.post(path + "/orders").json["error"]["code"] == "payment_mismatch"
+    assert len(paypal.create_calls) == 1
+
+
+def test_missing_order_after_capture_started_never_replaced(app, client, saved, paypal, approved, monkeypatch):
+    path, order_id = approved
+
+    def missing(_):
+        raise AppError("paypal_order_not_found", "Unavailable", 502)
+
+    monkeypatch.setattr(paypal, "get_order", missing)
+    assert client.post(path + "/capture", json={"order_id": order_id}).status_code == 502
+    assert client.post(path + "/orders").json["error"]["code"] == "payment_pending"
+    assert len(paypal.create_calls) == 1
+    assert not paypal.capture_calls
+    unpaid(client, saved)
+
+
+def test_concurrent_stale_order_retries_create_one_replacement(app, client, saved, paypal, monkeypatch):
+    path = public_path(saved)
+    old_id = client.post(path + "/orders").json["order_id"]
+    original = paypal.get_order
+
+    def lookup(order_id):
+        if order_id == old_id:
+            raise AppError("paypal_order_not_found", "Unavailable", 502)
+        return original(order_id)
+
+    monkeypatch.setattr(paypal, "get_order", lookup)
+
+    def create(_):
+        with app.test_client() as browser:
+            response = browser.post(path + "/orders")
+            assert response.status_code == 201
+            return response.json["order_id"]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        ids = list(pool.map(create, range(2)))
+    assert ids[0] == ids[1] != old_id
+    assert len(paypal.create_calls) == 2
+
+
+def test_replacement_timeout_reuses_committed_key(app, client, saved, paypal, monkeypatch):
+    path = public_path(saved)
+    old_id = client.post(path + "/orders").json["order_id"]
+    paypal.orders[old_id]["status"] = "VOIDED"
+    paypal.uncertain_create = True
+    original = paypal.create
+
+    def create_with_committed_key(row, attempt):
+        # A separate connection must see the replacement before the upstream POST.
+        with sqlite3.connect(app.config["DATABASE"]) as connection:
+            assert connection.execute("SELECT create_key FROM payment_attempts WHERE id=?", (attempt["id"],)).fetchone()[0] == attempt["create_key"]
+        return original(row, attempt)
+
+    monkeypatch.setattr(paypal, "create", create_with_committed_key)
+    assert client.post(path + "/orders").status_code == 502
+    with app.app_context():
+        attempts = get_db().execute("SELECT * FROM payment_attempts ORDER BY rowid").fetchall()
+        assert len(attempts) == 2
+        assert attempts[0]["state"] == "failed"
+        assert attempts[1]["state"] == "uncertain"
+        key = attempts[1]["create_key"]
+    assert client.post(path + "/orders").status_code == 201
+    assert paypal.create_calls[-2:] == [key, key]
+
+
+def test_late_error_cannot_resurrect_retired_attempt(app, client, saved, paypal):
+    from backend.payments import record_error
+
+    path = public_path(saved)
+    old_id = client.post(path + "/orders").json["order_id"]
+    paypal.orders[old_id]["status"] = "VOIDED"
+    assert client.post(path + "/orders").status_code == 201
+    with app.app_context():
+        attempt = get_db().execute("SELECT id FROM payment_attempts WHERE order_id=?", (old_id,)).fetchone()
+        record_error(attempt["id"], AppError("paypal_uncertain", "Late response", 502))
+        assert get_db().execute("SELECT state FROM payment_attempts WHERE id=?", (attempt["id"],)).fetchone()[0] == "failed"
+
+
+@pytest.mark.parametrize("method,path,status,name,issues,expected", [
+    ("GET", "/v2/checkout/orders/ORDER1", 404, "RESOURCE_NOT_FOUND", ["INVALID_RESOURCE_ID"], "paypal_order_not_found"),
+    ("GET", "/v2/checkout/orders/ORDER1", 404, "OTHER_ERROR", [], "paypal_upstream_error"),
+    ("GET", "/v2/checkout/orders/ORDER1", 401, "RESOURCE_NOT_FOUND", ["INVALID_RESOURCE_ID"], "paypal_upstream_error"),
+    ("POST", "/v2/checkout/orders/ORDER1/capture", 404, "RESOURCE_NOT_FOUND", ["INVALID_RESOURCE_ID"], "paypal_upstream_error"),
+])
+def test_transport_safe_diagnostics_and_missing_classification(app, caplog, method, path, status, name, issues, expected):
+    service = PayPalService(app.config)
+    service.access_token = lambda: "never-log-token"
+    response = MagicMock(ok=False, status_code=status, headers={})
+    response.json.return_value = {
+        "name": name, "debug_id": "f4398162bb931", "message": "private-buyer-information",
+        "details": [{"issue": issue, "value": "private-buyer-information"} for issue in issues],
+        "access_token": "never-log-token",
+    }
+    service.session.request = MagicMock(return_value=response)
+    with pytest.raises(AppError) as error:
+        service.call(method, path)
+    assert error.value.code == expected
+    assert error.value.diagnostics["debug_id"] == "f4398162bb931"
+    assert "f4398162bb931" in caplog.text
+    assert "never-log-token" not in caplog.text
+    assert "private-buyer-information" not in caplog.text
+    assert service.session.request.call_count == 1
+
+
+def test_safe_debug_id_in_api_error(app, client, saved, monkeypatch):
+    def fail(_token):
+        raise AppError("paypal_upstream_error", "PayPal unavailable", 502, {"debug_id": "f4398162bb931", "name": "PRIVATE"})
+
+    monkeypatch.setattr("backend.payments.create_order", fail)
+    response = client.post(public_path(saved) + "/orders")
+    assert response.status_code == 502
+    assert response.json["error"] == {"code": "paypal_upstream_error", "message": "PayPal unavailable", "debug_id": "f4398162bb931"}

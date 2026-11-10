@@ -82,6 +82,8 @@ The smoke command above is a **live**, noninteractive test using fictional reque
 
 The integration uses the current official [React SDK v6 reference](https://developer.paypal.com/sdk/react/reference), [Orders v2](https://developer.paypal.com/api/orders/v2), [OAuth](https://developer.paypal.com/api/rest/authentication), and [idempotency guidance](https://developer.paypal.com/api/rest/reference/idempotency). REST calls are permanently restricted to `https://api-m.sandbox.paypal.com`; the frontend SDK environment is explicitly sandbox. SDK approval triggers backend capture, **not** a browser-driven paid-state update.
 
+For the verified stale-order pre-login failure, safe response diagnostics, and exact fresh-order retry steps, see [PayPal checkout diagnosis](docs/PAYPAL_CHECKOUT_DEBUG.md). Cached orders are retrieved and verified before reuse; only definitively missing/voided orders with no capture started can be replaced.
+
 ## Reproduce the end-to-end demo
 
 1. Create `Alex Demo`, `Fictional website design`, `50.00`, with a due date today or in the future.

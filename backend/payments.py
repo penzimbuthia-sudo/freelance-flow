@@ -27,7 +27,7 @@ def record_error(attempt_id, error):
     state = {"payment_declined": "failed", "order_voided": "failed", "order_not_approved": "created"}.get(error.code, "uncertain")
     with transaction() as db:
         db.execute(
-            "UPDATE payment_attempts SET state=?, diagnostic=?, updated_at=? WHERE id=? AND state!='completed'",
+            "UPDATE payment_attempts SET state=?, diagnostic=?, updated_at=? WHERE id=? AND state NOT IN ('failed','completed')",
             (state, error.code, now(), attempt_id),
         )
         if error.code == "order_not_approved":
@@ -36,49 +36,67 @@ def record_error(attempt_id, error):
     current_app.logger.warning("Sandbox payment attempt %s: %s", attempt_id, error.code)
 
 
+def new_attempt(db, request_id):
+    attempt_id, timestamp = str(uuid4()), now()
+    db.execute(
+        """INSERT INTO payment_attempts
+        (id, request_id, create_key, capture_key, state, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'creating', ?, ?)""",
+        (attempt_id, request_id, str(uuid4()), str(uuid4()), timestamp, timestamp),
+    )
+
+
 def create_order(token):
     require_ready()
-    with transaction() as db:
-        row = find_request(token=token)
-        if row["status"] == "paid":
-            raise AppError("already_paid", "This request is already paid.", 409)
-        attempt = db.execute(
-            "SELECT * FROM payment_attempts WHERE request_id=? AND state NOT IN ('failed','completed')", (row["id"],)
-        ).fetchone()
-        if not attempt:
-            attempt_id, timestamp = str(uuid4()), now()
-            db.execute(
-                """INSERT INTO payment_attempts
-                (id, request_id, create_key, capture_key, state, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'creating', ?, ?)""",
-                (attempt_id, row["id"], str(uuid4()), str(uuid4()), timestamp, timestamp),
-            )
-            attempt = db.execute("SELECT * FROM payment_attempts WHERE id=?", (attempt_id,)).fetchone()
-        attempt_id = attempt["id"]
+    attempt_id = None
     try:
-        # Serialize this tiny workspace's payment operations, including across processes.
-        # The persisted attempt above survives a process exit during an upstream call.
-        with transaction() as db:
-            row = find_request(token=token)
-            if row["status"] == "paid":
-                raise AppError("already_paid", "This request is already paid.", 409)
-            attempt = db.execute("SELECT * FROM payment_attempts WHERE id=?", (attempt_id,)).fetchone()
-            if attempt["order_id"]:
-                if attempt["capture_started_at"]:
-                    raise AppError("payment_pending", "An earlier payment needs verification. Use Check payment status before paying again.", 409)
-                return {"order_id": attempt["order_id"]}
-            if not within_retry_window(attempt["created_at"]):
-                raise AppError("reconciliation_required", "This uncertain order is outside the safe retry window. The seller must reconcile it in PayPal sandbox before another attempt.", 409)
-            order = service().create(row, attempt)
-            order_id = order.get("id")
-            if not isinstance(order_id, str) or not order_id.isalnum() or len(order_id) > 64:
-                raise AppError("paypal_uncertain", "PayPal did not return a usable order identifier. Try checking again.", 502)
-            bound_attempt = dict(attempt) | {"order_id": order_id}
-            verify_order(order, row, bound_attempt, service().merchant_id)
-            db.execute("UPDATE payment_attempts SET order_id=?, state='created', updated_at=?, diagnostic=NULL WHERE id=?", (order_id, now(), attempt_id))
-            return {"order_id": order_id}
+        while True:
+            # Re-select the active attempt under the write lock: concurrent retries
+            # must converge on one replacement. Commit new keys BEFORE calling PayPal.
+            with transaction() as db:
+                row = find_request(token=token)
+                if row["status"] == "paid":
+                    raise AppError("already_paid", "This request is already paid.", 409)
+                attempt = db.execute(
+                    "SELECT * FROM payment_attempts WHERE request_id=? AND state NOT IN ('failed','completed')", (row["id"],)
+                ).fetchone()
+                if not attempt:
+                    new_attempt(db, row["id"])
+                    continue
+                attempt_id = attempt["id"]
+                if attempt["order_id"]:
+                    if attempt["capture_started_at"]:
+                        raise AppError("payment_pending", "An earlier payment needs verification. Use Check payment status before paying again.", 409)
+                    try:
+                        order = service().get_order(attempt["order_id"])
+                    except AppError as error:
+                        if error.code != "paypal_order_not_found":
+                            raise
+                        order = None
+                    if order is not None:
+                        verify_order(order, row, attempt, service().merchant_id)
+                        if order.get("status") in ("CREATED", "PAYER_ACTION_REQUIRED"):
+                            return {"order_id": attempt["order_id"]}
+                        if order.get("status") != "VOIDED":
+                            raise AppError("payment_pending", "An earlier payment needs verification. Use Check payment status before paying again.", 409)
+                    # Only retire definitive missing/voided orders with no capture
+                    # started. Never rotate on timeouts, auth errors or uncertainty.
+                    db.execute("UPDATE payment_attempts SET state='failed', diagnostic='order_unavailable', updated_at=? WHERE id=?", (now(), attempt_id))
+                    new_attempt(db, row["id"])
+                    continue
+                if not within_retry_window(attempt["created_at"]):
+                    raise AppError("reconciliation_required", "This uncertain order is outside the safe retry window. The seller must reconcile it in PayPal sandbox before another attempt.", 409)
+                order = service().create(row, attempt)
+                order_id = order.get("id")
+                if not isinstance(order_id, str) or not order_id.isalnum() or len(order_id) > 64:
+                    raise AppError("paypal_uncertain", "PayPal did not return a usable order identifier. Try checking again.", 502)
+                bound_attempt = dict(attempt) | {"order_id": order_id}
+                verify_order(order, row, bound_attempt, service().merchant_id)
+                db.execute("UPDATE payment_attempts SET order_id=?, state='created', updated_at=?, diagnostic=NULL WHERE id=?", (order_id, now(), attempt_id))
+                return {"order_id": order_id}
     except AppError as error:
-        record_error(attempt_id, error)
+        if attempt_id:
+            record_error(attempt_id, error)
         raise
 
 

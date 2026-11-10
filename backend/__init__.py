@@ -26,7 +26,10 @@ def create_app(test_config=None):
 
     @app.errorhandler(AppError)
     def app_error(error):
-        return jsonify({"error": {"code": error.code, "message": error.message}}), error.status
+        details = {"code": error.code, "message": error.message}
+        if error.diagnostics.get("debug_id"):
+            details["debug_id"] = error.diagnostics["debug_id"]
+        return jsonify({"error": details}), error.status
 
     @app.errorhandler(HTTPException)
     def http_error(error):
