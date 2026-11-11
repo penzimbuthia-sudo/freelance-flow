@@ -57,6 +57,49 @@ Do **not** click Create/Deploy yet. When authorized, use:
 | Pre-deploy command | Blank (Free has no required shell/job workflow) |
 | Disks / extra datastores / scaling | None; one instance, one Gunicorn worker |
 
+### Fix: `failed to read dockerfile: open Dockerfile: no such file or directory`
+
+The reported deploy cloned `fb79b7ffaf1ce8196abedd467e1e006e9163cf58`.
+That commit **already contains the regular, tracked file `Dockerfile` at the
+repository root**, with exactly that capitalization. Remote `main` and GitHub's
+raw file at that commit were verified. `.gitignore` does not exclude it, and
+`.dockerignore` explicitly includes it with `!Dockerfile`; neither ignore file
+was the cause of this incident.
+
+The service owner confirmed extra trailing characters/slash beside
+`./Dockerfile` in Render's **Dockerfile Path** field. Correct the existing
+service's **Settings → Build & Deploy** fields to these separate exact values:
+
+| Field | Exact input |
+| --- | --- |
+| Root Directory | **Empty** — clear the field; do not enter `backend` or `src` |
+| Dockerfile Path | `./Dockerfile` — no spaces, extra slash, trailing `/.`, or punctuation |
+| Docker Build Context | `.` — a single dot, in its own field |
+
+Render resolves the Dockerfile path and build context relative to Root Directory.
+Selecting `backend` hides the root Dockerfile and frontend build inputs. This app
+needs the repository root because the multi-stage build copies both `src` and
+`backend`. A wrong build context can also cause later `COPY` failures, even when
+the Dockerfile itself is found.
+
+**A repository push cannot correct a stored Dashboard field.** Check that the
+settings are saved on the same service that produced the error, then manually
+retry its build when authorized. Do not create another service, move/duplicate
+the Dockerfile, remove secret exclusions, change application code, or reset data.
+Clearing the build cache is not a substitute for correcting the path.
+
+Verification performed for this diagnosis: exported the exact reported commit
+into a fresh directory, confirmed the root Dockerfile and every repository
+`COPY` input, and ran `npm ci --no-audit --no-fund` followed by `npm run build`.
+Both passed with an unchanged lockfile and fresh `dist/index.html`, without local
+dotenv files, databases, installed modules or prior build output. This used local
+Node **25.9.0**, not the Dockerfile's pinned Node 22 container stage.
+
+These checks are distinct from a complete Docker image build. This environment
+has no Docker/Podman, so no successful container build or successful Render
+redeploy is claimed for this diagnosis. Only this documentation changed; the
+existing Dockerfile, ignore rules, application behavior and databases did not.
+
 Gunicorn binds **`0.0.0.0:$PORT`** using `gunicorn.conf.py`; Render's default PORT
 is `10000`. It runs one `gthread` worker/four threads, 90-second worker/graceful
 timeouts, no idle upstream keep-alive, and bounded worker recycling. Access logs
@@ -234,4 +277,5 @@ Official references consulted: [Docker on Render](https://render.com/docs/docker
 [Free limits](https://render.com/docs/free),
 [web service ports/TLS](https://render.com/docs/web-services#port-binding), and the
 [HTTP health-check Host behavior](https://render.com/docs/health-checks), plus the
+[root-relative Dockerfile/context rules](https://render.com/docs/monorepo-support#root-relative-settings) and
 [Neon setup/security references](NEON.md#official-documentation-consulted).
