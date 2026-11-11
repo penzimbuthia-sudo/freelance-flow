@@ -72,7 +72,7 @@ def create_app(test_config=None):
         # Preserve the login POST's same-origin Origin without leaking referrers
         # cross-site. Token pages keep the stricter bearer-link privacy policy.
         response.headers["Referrer-Policy"] = "same-origin" if request.endpoint == "auth.login" else "no-referrer"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
         response.headers["X-Frame-Options"] = "DENY"
         if not request.path.startswith(("/assets/", "/auth-assets/")):
             response.headers["Cache-Control"] = "no-store"

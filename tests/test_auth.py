@@ -189,6 +189,22 @@ def test_native_login_policy_preserves_origin_without_exposing_payment_referrers
     assert get(client, "/api/auth/session").headers["Referrer-Policy"] == "no-referrer"
 
 
+@pytest.mark.parametrize("path", ["/", "/login", "/pay/fictional-token", "/api/public/config", "/api/settings", "/healthz"])
+def test_microphone_allowed_only_for_self_with_other_security_headers_preserved(auth_app, path):
+    auth_app.config["HOSTED"] = True
+    response = get(auth_app.test_client(), path)
+    assert response.headers["Permissions-Policy"] == "camera=(), microphone=(self), geolocation=()"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Strict-Transport-Security"] == "max-age=31536000"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Referrer-Policy"] == ("same-origin" if path == "/login" else "no-referrer")
+    if path == "/login":
+        assert response.headers["Content-Security-Policy"] == "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+    if path == "/api/settings":
+        assert response.status_code == 401
+
+
 @pytest.mark.parametrize("changes", [
     {"DATABASE_URL": ""}, {"DATABASE_URL": "sqlite:///ephemeral.db"},
     {"PUBLIC_BASE_URL": "http://workspace.example"}, {"PUBLIC_BASE_URL": "https://localhost"},
