@@ -7,10 +7,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def configuration():
-    load_dotenv(ROOT / ".env", override=False)
+    # Load exactly the selected file, including when started without the Flask CLI.
+    env_file = Path(os.getenv("FF_ENV_FILE", ".env"))
+    env_file = env_file if env_file.is_absolute() else ROOT / env_file
+    if "FF_ENV_FILE" in os.environ and not env_file.is_file():
+        raise ValueError("The explicitly selected FF_ENV_FILE does not exist. No database was initialized.")
+    load_dotenv(env_file, override=False)
     db_path = Path(os.getenv("DATABASE_PATH", "instance/freelance-flow.sqlite3"))
     return {
         "DATABASE": str(db_path if db_path.is_absolute() else ROOT / db_path),
+        "DATABASE_URL": os.getenv("DATABASE_URL", "").strip(),
         "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY", "").strip()
         or os.getenv("GEMINI_API_KEY", "").strip(),
         "GEMINI_MODEL": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite",

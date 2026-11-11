@@ -1,6 +1,6 @@
 import unicodedata
 
-from .db import get_db, now
+from .db import get_db, now, transaction
 from .errors import AppError
 
 
@@ -20,12 +20,13 @@ def get_settings():
 def save_settings(data):
     name = validate_display_name(data.get("freelancer_display_name"))
     timestamp = now()
-    get_db().execute(
-        """INSERT INTO workspace_settings (id, freelancer_display_name, created_at, updated_at)
-        VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
-        freelancer_display_name=excluded.freelancer_display_name, updated_at=excluded.updated_at""",
-        (name, timestamp, timestamp),
-    )
+    with transaction() as db:
+        db.execute(
+            """INSERT INTO workspace_settings (id, freelancer_display_name, created_at, updated_at)
+            VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+            freelancer_display_name=excluded.freelancer_display_name, updated_at=excluded.updated_at""",
+            (name, timestamp, timestamp),
+        )
     return get_settings()
 
 

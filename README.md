@@ -35,6 +35,8 @@ npm run dev
 
 Open **http://localhost:5173**, matching `PUBLIC_BASE_URL`. Vite forwards `/api` to Flask on port 5000; no permissive CORS is enabled. SQLite initializes automatically at `instance/freelance-flow.sqlite3`. Refreshing or restarting the app preserves requests and attempts. Restart Flask after changing configuration. Do not set `FLASK_DEBUG=1` for deployment.
 
+To use the **existing Neon PostgreSQL project** instead, follow [Neon setup and verification](docs/NEON.md). Flask uses synchronous Psycopg 3 through a server-only `DATABASE_URL`; React still calls Flask. SQLite remains available and is not automatically copied to or replaced by Neon. Live Neon verification is pending local credentials.
+
 Optional fictional seed (only inserts if the database is empty):
 
 ```sh
@@ -55,9 +57,11 @@ It creates three **unpaid** requests, never fake AI output or successful payment
 | `PAYPAL_MERCHANT_ID` | Sandbox **business seller merchant ID**, required to verify the recipient. Not a client ID or buyer ID. |
 | `PUBLIC_BASE_URL` | Browser-facing origin for payment links and public mutation Origin. Local management also accepts its own validated localhost origin. Default `http://localhost:5173`; no trailing slash. |
 | `DATABASE_PATH` | SQLite filename; relative paths resolve from repository root. Default `instance/freelance-flow.sqlite3`. |
+| `DATABASE_URL` | Server-only PostgreSQL URI; takes precedence over `DATABASE_PATH` when nonblank. Blank selects SQLite. Never use a `VITE_` prefix. |
+| `FF_ENV_FILE` | Set in the launching shell to select an environment file explicitly, relative to repository root or absolute. Default `.env`; use `.env.local` for Neon. Set `FLASK_SKIP_DOTENV=1` with Flask CLI to prevent its separate automatic dotenv loading. |
 | `APP_HOSTS` | Comma-separated allowed HTTP hosts. Default `localhost,127.0.0.1,[::1]`. Add an exact public hostname only when intentionally deploying payment pages. |
 
-`.env` loads on the server only; existing process environment values win. No secret belongs in a `VITE_` variable. `/api/health` reports readiness booleans/model/timezone, never keys. The public config exposes only sandbox readiness and the public client ID.
+The backend explicitly loads the selected environment file; existing process environment values win. No secret belongs in a `VITE_` variable. `/api/health` reports readiness booleans/model/timezone, never keys. The public config exposes only sandbox readiness and the public client ID.
 
 ### Gemini
 
@@ -114,7 +118,7 @@ Linux may need `npx playwright install-deps chromium` (administrator approval/sy
 - `src/App.jsx`, `src/App.css`, `src/index.css`: dashboard, searchable/filterable list, create/details, minimal token payment page. No chatbot, charts, or autonomous sending.
 - Typography uses self-hosted Inter (`@fontsource/inter`, normal Latin 400/500/600/700, swap loading) with system sans-serif fallback. Shared type-scale tokens live in `src/index.css`; form controls, the Clear draft dialog and print confirmation inherit the same font. Browser checks verify rendered fonts, long-content reflow and native Chromium 200% zoom using an isolated test-only extension, never the user's browser profile.
 - Request-details presentation is centralized in `src/paymentPresentation.js`; it formats dates/amounts but uses the backend's canonical payment status, timing, overdue-day count and attempt outcome unchanged. The existing React Router dependency's data-router provider enables `useBlocker` for edited-draft navigation protection without changing route paths or adding a dependency.
-- `backend/config.py`, `db.py`, `models.py`: Flask configuration, SQLite initialization, request validation/serialization.
+- `backend/config.py`, `db.py`, `models.py`: explicit environment configuration, SQLite/PostgreSQL initialization and migrations, request validation/serialization.
 - `backend/routes.py`, `ai.py`, `paypal.py`, `payments.py`: JSON routes, Gemini adapter, sandbox REST adapter, persisted payment state machine.
 - `tests/`: focused mocked backend tests. `browser-tests/`: real Chromium checks of the local app, not live integrations.
 
@@ -142,7 +146,7 @@ Restart Flask after updating: initialization adds `payment_events` without repla
 
 The server reads amount/currency/request ownership from SQLite and creates an opaque 256-bit payment-page token. It persists the attempt and separate UUID idempotency keys **before** network operations, then saves returned order/capture identifiers. It checks order ID, request reference, attempt custom ID, seller merchant ID, USD currency, gross amount, and completed capture status before atomically updating the attempt and request to paid. Duplicate callbacks return the saved result. Cancellation is advisory only, not proof PayPal cannot capture.
 
-SQLite immediate transactions serialize payment operations, including bounded upstream calls, to prevent concurrent double capture/new attempts in this small workspace. This intentionally favors correctness over throughput; a busy workspace can return a retryable database error. An ambiguous create reuses its persisted create key. Every capture attempt first retrieves and verifies the PayPal order; if already captured it records the verified result without another capture. Pending captures block a second payment. Only after successful reconciliation showing an approved, uncaptured order can the same capture key be used again. No HTTP POST is blindly retried.
+SQLite immediate transactions serialize payment operations, including bounded upstream calls, to prevent concurrent double capture/new attempts in this small workspace. PostgreSQL uses the same transaction boundaries with a transaction-scoped workspace advisory lock acquired before reading state. This intentionally favors correctness over throughput; a busy workspace can return a retryable database error. An ambiguous create reuses its persisted create key. Every capture attempt first retrieves and verifies the PayPal order; if already captured it records the verified result without another capture. Pending captures block a second payment. Only after successful reconciliation showing an approved, uncaptured order can the same capture key be used again. No HTTP POST is blindly retried.
 
 Automatic retry is blocked after five hours, short of Orders v2's default six-hour idempotency retention. Older uncertain attempts require seller inspection of order/capture history in the sandbox dashboard. Do not delete the database or hand-mark a request paid to bypass this protection. This MVP has no administrative reconciliation editor; investigate the order before any manual database repair and take a backup.
 
@@ -155,6 +159,8 @@ Automatic retry is blocked after five hours, short of Orders v2's default six-ho
 - SQLite serializes writes; this is one workspace, one persistent host, not a distributed/multi-user service. Edited messages are not saved. There is no request editing/deletion in this MVP.
 
 ## Local production build and deployment path
+
+The persistent-disk instructions below describe the SQLite option. Neon setup is documented separately in [docs/NEON.md](docs/NEON.md); changing databases does not authorize deployment or remove the local-only management restrictions.
 
 To run the production frontend and backend together locally:
 

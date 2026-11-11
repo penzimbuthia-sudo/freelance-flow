@@ -1,11 +1,12 @@
 import sqlite3
 
 import click
+import psycopg
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from .config import ROOT, configuration
-from .db import close_db, init_db
+from .db import DatabaseConnectionError, close_db, init_db
 from .errors import AppError
 from .models import create_request
 from .paypal import PayPalService
@@ -17,9 +18,16 @@ def create_app(test_config=None):
     app.config.update(configuration())
     if test_config:
         app.config.update(test_config)
+        # An explicitly selected local/test database must never inherit a real
+        # DATABASE_URL from the developer's environment file.
+        if "DATABASE" in test_config and "DATABASE_URL" not in test_config:
+            app.config["DATABASE_URL"] = ""
     app.teardown_appcontext(close_db)
     with app.app_context():
-        init_db()
+        try:
+            init_db()
+        except psycopg.Error:
+            raise DatabaseConnectionError("PostgreSQL schema initialization failed; no reset was performed. Check permissions and schema compatibility.") from None
     app.extensions["paypal"] = PayPalService(app.config)
     from .routes import api
     app.register_blueprint(api)
@@ -36,6 +44,8 @@ def create_app(test_config=None):
         return jsonify({"error": {"code": error.name.lower().replace(" ", "_"), "message": error.description}}), error.code
 
     @app.errorhandler(sqlite3.OperationalError)
+    @app.errorhandler(psycopg.OperationalError)
+    @app.errorhandler(DatabaseConnectionError)
     def db_error(_error):
         return jsonify({"error": {"code": "database_busy", "message": "The workspace is busy. Please retry shortly."}}), 503
 
@@ -74,7 +84,7 @@ def create_app(test_config=None):
         from datetime import timedelta
         from .models import today
         from .db import get_db
-        if get_db().execute("SELECT COUNT(*) FROM payment_requests").fetchone()[0]:
+        if get_db().execute("SELECT COUNT(*) AS count FROM payment_requests").fetchone()["count"]:
             click.echo("Database is not empty; no demo data added.")
             return
         for name, service, amount, days in [

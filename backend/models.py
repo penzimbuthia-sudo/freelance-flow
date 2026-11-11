@@ -88,8 +88,9 @@ def create_request(data):
         cursor = db.execute(
             """INSERT INTO payment_requests
             (public_token, client_name, service_description, amount_cents, due_date, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             (secrets.token_urlsafe(32), fields["client_name"], fields["service_description"], cents, due, timestamp, timestamp),
         )
-        record_event(db, cursor.lastrowid, "request_created", occurred_at=timestamp)
-    return find_request(cursor.lastrowid)
+        request_id = cursor.fetchone()["id"]
+        record_event(db, request_id, "request_created", occurred_at=timestamp)
+    return find_request(request_id)
