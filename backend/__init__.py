@@ -23,7 +23,7 @@ def create_app(test_config=None):
         if "DATABASE" in test_config and "DATABASE_URL" not in test_config:
             app.config["DATABASE_URL"] = ""
     validate_configuration(app.config)
-    from .auth import auth, configure_sessions
+    from .auth import auth, configure_sessions, render_login_error
     configure_sessions(app)
     app.register_blueprint(auth)
     app.teardown_appcontext(close_db)
@@ -41,7 +41,10 @@ def create_app(test_config=None):
         details = {"code": error.code, "message": error.message}
         if error.diagnostics.get("debug_id"):
             details["debug_id"] = error.diagnostics["debug_id"]
-        response = jsonify({"error": details})
+        if app.config["AUTH_REQUIRED"] and request.endpoint == "auth.login" and not request.is_json:
+            response = app.response_class(render_login_error(error), mimetype="text/html")
+        else:
+            response = jsonify({"error": details})
         if error.status == 429:
             response.headers["Retry-After"] = str(error.diagnostics.get("retry_after", 60))
         return response, error.status
@@ -65,7 +68,10 @@ def create_app(test_config=None):
     @app.after_request
     def security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # Native form navigations under no-referrer can send Origin: null.
+        # Preserve the login POST's same-origin Origin without leaking referrers
+        # cross-site. Token pages keep the stricter bearer-link privacy policy.
+        response.headers["Referrer-Policy"] = "same-origin" if request.endpoint == "auth.login" else "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["X-Frame-Options"] = "DENY"
         if not request.path.startswith(("/assets/", "/auth-assets/")):

@@ -35,6 +35,20 @@ def safe_next(value):
     return value
 
 
+def render_login_error(error):
+    # A normal HTML form must not strand the user on an API-style JSON error.
+    # Keep the original HTTP status and all checks; never echo submitted credentials.
+    messages = {
+        "origin_forbidden": "Sign-in was blocked because this page's address does not match the configured public origin. Ask the workspace owner to check PUBLIC_BASE_URL, then reload this page.",
+        "csrf_failed": "Your sign-in page expired or secure cookies are unavailable. Reload the sign-in page and try again.",
+        "request_rate_limited": "Too many sign-in attempts. Wait 15 minutes before trying again.",
+    }
+    return render_template(
+        "login.html", csrf=csrf_token(), destination=safe_next(request.values.get("next")),
+        error=messages.get(error.code, error.message),
+    )
+
+
 @auth.route("/login", methods=["GET", "POST"])
 def login():
     if not current_app.config["AUTH_REQUIRED"]:

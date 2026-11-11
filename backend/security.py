@@ -66,6 +66,8 @@ def require_csrf(value=None):
 
 def require_allowed_origin():
     origin = request.headers.get("Origin")
+    # Browser-visible origin, not request.scheme: Render forwards HTTPS over HTTP.
+    # Never extend hosted trust using Host, X-Forwarded-* or Forwarded headers.
     allowed = {current_app.config["PUBLIC_BASE_URL"]}
     if not current_app.config["HOSTED"]:
         # Preserve approved localhost/SSH management of public token links.

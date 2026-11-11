@@ -177,6 +177,89 @@ then explicitly select it with `FF_ENV_FILE=... FLASK_SKIP_DOTENV=1`. Secure coo
 need a real HTTPS browser origin/reverse proxy; merely browsing `http://localhost`
 is not an end-to-end secure-cookie test. Never overwrite `.env.local` to rehearse.
 
+## Troubleshooting `POST /login` → `origin_forbidden`
+
+For the deployed workspace, the exact public runtime settings are:
+
+```dotenv
+PUBLIC_BASE_URL=https://freelance-flow-mapt.onrender.com
+APP_HOSTS=freelance-flow-mapt.onrender.com
+```
+
+`PUBLIC_BASE_URL` is the allowed browser origin and payment-link base.
+`APP_HOSTS` validates destination Host headers; changing it alone does not allow
+an Origin. Set these in the existing Render service's Environment settings, not
+in a committed dotenv file or Vite variable. Keep `APP_ENV=production` and all
+existing session/password/database credentials unchanged. If correcting an
+environment value, save/apply it and restart/redeploy the existing service so its
+workers use the new value; then reload `/login` to obtain a fresh CSRF form/cookie.
+
+Hosted origin validation compares the request's **Origin header** directly with
+configured `PUBLIC_BASE_URL`. It intentionally **does not** compare with Flask's
+`request.scheme`, `request.host_url`, or forwarded headers. Render's HTTPS-to-HTTP
+proxy hop therefore does not make a correctly configured HTTPS Origin fail.
+Gunicorn continues to ignore arbitrary forwarded headers; no ProxyFix, wildcard
+origin, automatic Host-based allowlist expansion, or CSRF bypass is necessary.
+
+In browser Network → failed request → Request Headers, inspect **Origin**, which
+should be `https://freelance-flow-mapt.onrender.com`. HTTP/2 **`:authority`** is
+only `freelance-flow-mapt.onrender.com` (the destination host), not the Origin.
+Do not share Cookie headers, CSRF tokens, request payloads/passwords, or a full HAR.
+An Origin of `null`, HTTP, another preview/domain, or another site is deliberately
+rejected; do not whitelist `null` or bypass CSRF to make a form submit.
+
+During this investigation, credential-free probes of the deployed service gave:
+
+- Correct HTTPS Origin, no credentials/CSRF submitted: **403 `csrf_failed`**.
+  This proves the origin check passed; the missing-CSRF rejection is expected.
+- Foreign Origin, no credentials/CSRF submitted: **403 `origin_forbidden`**.
+
+The owner then confirmed that the browser's actual failed request used
+**`Origin: null`**. The root cause was the app's blanket **`Referrer-Policy:
+no-referrer`** response header: Chromium can suppress Origin to `null` for a
+native form navigation POST under that policy, even on the same HTTPS site.
+Explicit-Origin HTTP probes did not reproduce that browser-generated behavior.
+
+This was reproduced in real Chromium using the deployed login page with every
+form POST intercepted **before network transmission**: the existing response
+policy generated `Origin: null`; changing only the browser's received login
+policy to `same-origin` generated the correct public HTTPS Origin. No deployed
+password was submitted, changed or tested, and no login attempt was sent by that
+browser experiment. This is not a Render HTTP-upstream/proxy-trust bug.
+
+The focused fix sets **`Referrer-Policy: same-origin` only for `/login`**, including
+its error responses. Native same-origin form POSTs then preserve their Origin,
+while cross-site referrers remain suppressed. All other responses, particularly
+token payment pages, keep **`no-referrer`** to protect bearer-link privacy. The
+server still rejects an explicit `Origin: null` and foreign origins. The current
+public environment values above are already correct; an environment change alone
+does not fix this response-header bug.
+
+The focused login UX fix renders ordinary HTML form errors (origin mismatch,
+expired/missing CSRF, lockout) back in the escaped sign-in form with a readable
+alert, preserving the **403/429 status and Retry-After**. It does not echo a
+username/password. JSON login submissions and API errors remain JSON, invalid
+credentials still return 401, and origin/CSRF/authentication checks are unchanged.
+Rebuilding/redeploying a reviewed commit containing these fixes is required for
+native form login and the HTML error presentation; the live allowlist needs no proxy
+change. The local regression tests use fictional credentials/disposable databases,
+including a simulated HTTP upstream with the exact public HTTPS Origin, foreign
+and spoofed-forwarded headers, missing/wrong CSRF, invalid credentials and quotas.
+Regression coverage includes a real Chromium native-form test over local HTTPS
+terminating at an HTTP Gunicorn upstream, without synthesizing Origin or cookie
+headers; header assertions also protect payment pages' `no-referrer` policy.
+The complete backend suite passed **261 tests**, the new native Chromium login
+regression passed, and frontend lint / `git diff --check` passed. Re-run the browser
+case with `npx playwright test browser-tests/login.spec.js`; it requires the existing
+Chromium installation and local OpenSSL for a temporary test-only TLS certificate.
+The live probes tested only pre-authentication origin/CSRF rejection, not the
+owner's credentials. This behavior is documented in MDN's
+[Origin header description](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Origin#description)
+and [Referrer-Policy effects on Origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy#effect_on_the_origin_header).
+No password, session secret, Render setting, payment record or database schema was
+changed, and these code changes require a reviewed commit/push/redeploy before
+the corrected native login policy and HTML error presentation are available on Render.
+
 ## Authentication and request safety
 
 - `/login` is a server-rendered, escaped form with login CSRF protection and a
@@ -226,7 +309,7 @@ Neither kind of test performed a PayPal payment or Gemini API request.
 | Check | Result |
 | --- | --- |
 | Lockfile build | `npm ci --no-audit --no-fund`, lint and Vite production build passed; npm lock unchanged |
-| Backend | **251 passed**, including authentication, configuration, payment/archive regressions, secret-file generation and real Gunicorn smoke |
+| Backend | **261 passed**, including authentication, native-login policy/configuration, payment/archive regressions, secret-file generation and real Gunicorn smoke |
 | Frontend units | **12 passed** (presentation plus same-origin/CSRF/session-expiry API helper checks) |
 | Chromium regressions | **17 passed** on the complete rerun; isolated SQLite and mocked providers, not real payments/AI |
 | Python production lock | Fresh-resolution dry run with binary-only wheels succeeded on Python 3.14/Linux |

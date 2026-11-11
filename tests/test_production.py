@@ -102,11 +102,17 @@ def run_smoke(neon_url="", existing_id=None):
                     response = call(path, method, anonymous=True)
                     assert response.status_code == 404 and response.json()["error"]["code"] == "not_found"
             assert call("/api/public/config", anonymous=True).json()["sandbox"] is True
-            assert call("/login", "POST", data={"username": "fictional-smoke-admin", "password": password}).status_code == 403
+            missing_csrf = call("/login", "POST", data={"username": "fictional-smoke-admin", "password": password})
+            assert missing_csrf.status_code == 403
+            assert missing_csrf.headers["Content-Type"].startswith("text/html")
+            assert 'role="alert"' in missing_csrf.text and password not in missing_csrf.text
             page = call("/login")
             csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
             login_cookie = SimpleCookie(page.headers["Set-Cookie"])["__Host-ff_session"]
             cookie = "__Host-ff_session=" + login_cookie.value
+            foreign = call("/login", "POST", data={"username": "fictional-smoke-admin", "password": password, "csrf_token": csrf}, headers={"Origin": "https://foreign.example"})
+            assert foreign.status_code == 403 and "configured public origin" in foreign.text
+            assert 'role="alert"' in foreign.text and password not in foreign.text
             response = call("/login", "POST", data={"username": "fictional-smoke-admin", "password": password, "csrf_token": csrf}, headers={"Origin": ORIGIN})
             assert response.status_code == 303
             assert all(flag in response.headers["Set-Cookie"] for flag in ("Secure", "HttpOnly", "SameSite=Lax"))

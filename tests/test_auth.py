@@ -1,5 +1,6 @@
 import re
 import time
+from http.cookies import SimpleCookie
 from unittest.mock import MagicMock
 
 import pytest
@@ -177,6 +178,17 @@ def test_missing_assets_and_liveness(auth_app):
     assert get(client, "/login").headers["Content-Security-Policy"].startswith("default-src 'none'")
 
 
+def test_native_login_policy_preserves_origin_without_exposing_payment_referrers(auth_app):
+    client = auth_app.test_client()
+    assert get(client, "/login").headers["Referrer-Policy"] == "same-origin"
+    failure = client.post("/login", base_url=ORIGIN, data={})
+    assert failure.status_code == 403
+    assert failure.headers["Referrer-Policy"] == "same-origin"
+    assert get(client, "/pay/fictional-token").headers["Referrer-Policy"] == "no-referrer"
+    assert get(client, "/api/public/config").headers["Referrer-Policy"] == "no-referrer"
+    assert get(client, "/api/auth/session").headers["Referrer-Policy"] == "no-referrer"
+
+
 @pytest.mark.parametrize("changes", [
     {"DATABASE_URL": ""}, {"DATABASE_URL": "sqlite:///ephemeral.db"},
     {"PUBLIC_BASE_URL": "http://workspace.example"}, {"PUBLIC_BASE_URL": "https://localhost"},
@@ -191,3 +203,108 @@ def test_hosted_config_fails_before_opening_database(auth_config, monkeypatch, c
     with pytest.raises(ValueError):
         create_app(config)
     init.assert_not_called()
+
+
+RENDER_HOST = "freelance-flow-mapt.onrender.com"
+RENDER_ORIGIN = f"https://{RENDER_HOST}"
+
+
+@pytest.fixture
+def render_proxy_app(auth_app):
+    # Initialize only the isolated SQLite fixture, then exercise hosted request
+    # boundaries. Production's actual PostgreSQL startup requirement is unchanged.
+    auth_app.config.update(HOSTED=True, PUBLIC_BASE_URL=RENDER_ORIGIN, TRUSTED_HOSTS=[RENDER_HOST])
+    return auth_app
+
+
+def proxy_login_form(app):
+    client = app.test_client(use_cookies=False)
+    # Render terminates browser HTTPS; Gunicorn deliberately sees plain HTTP.
+    response = client.get("/login", base_url=f"http://{RENDER_HOST}")
+    token = re.search(r'name="csrf_token" value="([^"]+)"', response.text).group(1)
+    cookie = SimpleCookie(response.headers["Set-Cookie"])["__Host-ff_session"].value
+    return client, token, f"__Host-ff_session={cookie}"
+
+
+def test_https_origin_login_accepted_over_http_proxy_without_trusting_headers(render_proxy_app):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    # No X-Forwarded-Proto is required for the configured HTTPS origin to match.
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={
+        "Origin": RENDER_ORIGIN, "Cookie": cookie,
+    }, data={"username": "demo-admin", "password": PASSWORD, "csrf_token": token, "next": "/requests"})
+    assert response.status_code == 303 and response.headers["Location"] == "/requests"
+    assert all(flag in response.headers["Set-Cookie"] for flag in ("Secure", "HttpOnly", "SameSite=Lax"))
+    authenticated_cookie = SimpleCookie(response.headers["Set-Cookie"])["__Host-ff_session"].value
+    protected = client.get("/api/settings", base_url=f"http://{RENDER_HOST}", headers={"Cookie": f"__Host-ff_session={authenticated_cookie}"})
+    assert protected.status_code == 200
+
+
+@pytest.mark.parametrize("origin", ["https://foreign.example", "null", f"http://{RENDER_HOST}"])
+def test_foreign_origin_login_stays_blocked_despite_spoofed_proxy_headers(render_proxy_app, monkeypatch, origin):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    check = MagicMock(side_effect=AssertionError("Password checking must not be reached"))
+    monkeypatch.setattr("backend.auth.check_password_hash", check)
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={
+        "Origin": origin, "Cookie": cookie, "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": RENDER_HOST, "Forwarded": f"proto=https;host={RENDER_HOST}",
+    }, data={"username": "demo-admin", "password": PASSWORD, "csrf_token": token})
+    assert response.status_code == 403 and response.mimetype == "text/html"
+    assert 'role="alert"' in response.text and "configured public origin" in response.text
+    assert PASSWORD not in response.text and "demo-admin" not in response.text
+    assert client.get("/api/settings", base_url=f"http://{RENDER_HOST}", headers={"Cookie": cookie}).status_code == 401
+    check.assert_not_called()
+
+
+def test_mismatched_public_base_url_not_overridden_by_host_or_forwarded_proto(render_proxy_app, monkeypatch):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    render_proxy_app.config["PUBLIC_BASE_URL"] = "https://other-workspace.example"
+    check = MagicMock(side_effect=AssertionError("Password checking must not be reached"))
+    monkeypatch.setattr("backend.auth.check_password_hash", check)
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={
+        "Cookie": cookie, "Origin": RENDER_ORIGIN, "X-Forwarded-Proto": "https",
+    }, data={"username": "demo-admin", "password": PASSWORD, "csrf_token": token})
+    assert response.status_code == 403 and "PUBLIC_BASE_URL" in response.text
+    check.assert_not_called()
+
+
+@pytest.mark.parametrize("supplied", [None, "wrong-token"])
+def test_same_origin_proxy_login_still_requires_csrf_with_readable_errors(render_proxy_app, monkeypatch, supplied):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    check = MagicMock(side_effect=AssertionError("Password checking must not be reached"))
+    monkeypatch.setattr("backend.auth.check_password_hash", check)
+    form = {"username": "demo-admin", "password": PASSWORD, "next": "/requests/new"}
+    if supplied is not None:
+        form["csrf_token"] = supplied
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={"Origin": RENDER_ORIGIN, "Cookie": cookie}, data=form)
+    assert response.status_code == 403 and response.mimetype == "text/html"
+    assert "secure cookies" in response.text and 'name="csrf_token"' in response.text
+    assert 'name="next" value="/requests/new"' in response.text
+    assert PASSWORD not in response.text and "demo-admin" not in response.text
+    check.assert_not_called()
+
+
+def test_login_api_errors_remain_json_and_rate_limits_remain_effective(render_proxy_app):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={"Origin": "https://foreign.example", "Cookie": cookie}, json={})
+    assert response.status_code == 403 and response.json["error"]["code"] == "origin_forbidden"
+    with render_proxy_app.app_context():
+        get_db().execute("INSERT INTO request_limits (bucket, starts_at, attempts) VALUES ('login', ?, 10)", (int(time.time()),))
+    blocked = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={"Origin": RENDER_ORIGIN, "Cookie": cookie}, data={
+        "username": "demo-admin", "password": PASSWORD, "csrf_token": token,
+    })
+    assert blocked.status_code == 429 and blocked.headers["Retry-After"] == "900"
+    assert blocked.mimetype == "text/html" and "Wait 15 minutes" in blocked.text
+    assert PASSWORD not in blocked.text
+
+
+def test_same_origin_proxy_login_still_checks_password(render_proxy_app):
+    client, token, cookie = proxy_login_form(render_proxy_app)
+    response = client.post("/login", base_url=f"http://{RENDER_HOST}", headers={"Origin": RENDER_ORIGIN, "Cookie": cookie}, data={
+        "username": "demo-admin", "password": "incorrect-fictional-password", "csrf_token": token,
+    })
+    assert response.status_code == 401 and response.mimetype == "text/html"
+    assert 'role="alert"' in response.text and "Sign-in details are incorrect." in response.text
+    assert "incorrect-fictional-password" not in response.text
+    assert client.get("/api/settings", base_url=f"http://{RENDER_HOST}", headers={"Cookie": cookie}).status_code == 401
+    with render_proxy_app.app_context():
+        assert get_db().execute("SELECT COUNT(*) AS count FROM management_sessions").fetchone()["count"] == 0
