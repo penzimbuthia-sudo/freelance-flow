@@ -2,15 +2,15 @@ import sqlite3
 
 import click
 import psycopg
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory, url_for
 from werkzeug.exceptions import HTTPException
 
-from .config import ROOT, configuration
+from .config import ROOT, configuration, validate_configuration
 from .db import DatabaseConnectionError, close_db, init_db
 from .errors import AppError
 from .models import create_request
 from .paypal import PayPalService
-from .security import require_local_management
+from .security import authenticated, require_management
 
 
 def create_app(test_config=None):
@@ -22,6 +22,10 @@ def create_app(test_config=None):
         # DATABASE_URL from the developer's environment file.
         if "DATABASE" in test_config and "DATABASE_URL" not in test_config:
             app.config["DATABASE_URL"] = ""
+    validate_configuration(app.config)
+    from .auth import auth, configure_sessions
+    configure_sessions(app)
+    app.register_blueprint(auth)
     app.teardown_appcontext(close_db)
     with app.app_context():
         try:
@@ -37,7 +41,10 @@ def create_app(test_config=None):
         details = {"code": error.code, "message": error.message}
         if error.diagnostics.get("debug_id"):
             details["debug_id"] = error.diagnostics["debug_id"]
-        return jsonify({"error": details}), error.status
+        response = jsonify({"error": details})
+        if error.status == 429:
+            response.headers["Retry-After"] = str(error.diagnostics.get("retry_after", 60))
+        return response, error.status
 
     @app.errorhandler(HTTPException)
     def http_error(error):
@@ -60,20 +67,39 @@ def create_app(test_config=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        if request.path.startswith("/api/") or request.path.startswith("/pay/"):
+        response.headers["X-Frame-Options"] = "DENY"
+        if not request.path.startswith(("/assets/", "/auth-assets/")):
             response.headers["Cache-Control"] = "no-store"
+        if app.config["HOSTED"]:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        if request.path == "/login":
+            response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
         return response
+
+    @app.get("/healthz")
+    def healthz():
+        # Render liveness: do not wake Neon or expose config on every health poll.
+        return jsonify(status="ok")
+
+    @app.route("/api", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    @app.route("/api/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    def missing_api(path):
+        raise AppError("not_found", "API endpoint not found.", 404)
 
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")
     def frontend(path):
-        if path.startswith("api/"):
+        if path == "api" or path.startswith("api/"):
             raise AppError("not_found", "API endpoint not found.", 404)
         dist = ROOT / "dist"
-        if path and (dist / path).is_file() and (dist / path).resolve().is_relative_to(dist.resolve()):
-            return send_from_directory(dist, path)
+        if path.startswith("assets/") or path in ("brand-mark.svg", "icons.svg"):
+            if (dist / path).is_file() and (dist / path).resolve().is_relative_to(dist.resolve()):
+                return send_from_directory(dist, path)
+            raise AppError("not_found", "Asset not found.", 404)
         if not path.startswith("pay/"):
-            require_local_management()
+            if app.config["AUTH_REQUIRED"] and not authenticated():
+                return redirect(url_for("auth.login", next=request.full_path.rstrip("?")))
+            require_management()
         if not (dist / "index.html").exists():
             raise AppError("frontend_not_built", "Run npm run build or use the Vite development server.", 503)
         return send_from_directory(dist, "index.html")

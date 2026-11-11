@@ -2,7 +2,7 @@
 
 A small AI payment companion for freelancers: save a USD payment request, draft a thoughtful Gemini message, review/copy it yourself, and share a PayPal **sandbox** payment page. Requests become paid only after Flask verifies a completed capture. Built for the PayPal AI Hackathon, due **November 12, 2026, 11:00 p.m. Africa/Nairobi**.
 
-**Single workspace, local management, fictional information only.** There is no login or multi-user authorization. This is not a secure production invoicing service. Nothing is emailed, sent automatically, or charged in production.
+**Single workspace, fictional information only.** Local management remains loopback-only by default. Hosted production mode requires a server-side administrator login and PostgreSQL; it is still a sandbox demonstration, not a multi-user production invoicing service. Nothing is emailed, sent automatically, or charged in production.
 
 ## Quick start
 
@@ -37,6 +37,8 @@ Open **http://localhost:5173**, matching `PUBLIC_BASE_URL`. Vite forwards `/api`
 
 To use the **existing Neon PostgreSQL project** instead, follow [Neon setup and verification](docs/NEON.md). Flask uses synchronous Psycopg 3 through a server-only `DATABASE_URL`; React still calls Flask. SQLite remains available and is not automatically copied to or replaced by Neon. Genuine Neon connection, Flask restart, settings, archive and timeline persistence checks passed; details and limitations are recorded in that guide.
 
+For **free Render hosting preparation**, see [exact Docker settings, login setup, free-tier limits and verification](docs/RENDER.md). No service has been created or deployed. The multi-stage image builds React with `npm ci`, then serves it and `/api` together using Gunicorn on Render's `PORT`. Hosted mode fails closed without Neon, a public HTTPS origin, and administrator/session secrets.
+
 Optional fictional seed (only inserts if the database is empty):
 
 ```sh
@@ -60,8 +62,12 @@ It creates three **unpaid** requests, never fake AI output or successful payment
 | `DATABASE_URL` | Server-only PostgreSQL URI; takes precedence over `DATABASE_PATH` when nonblank. Blank selects SQLite. Never use a `VITE_` prefix. |
 | `FF_ENV_FILE` | Set in the launching shell to select an environment file explicitly, relative to repository root or absolute. Default `.env`; use `.env.local` for Neon. Set `FLASK_SKIP_DOTENV=1` with Flask CLI to prevent its separate automatic dotenv loading. |
 | `APP_HOSTS` | Comma-separated allowed HTTP hosts. Default `localhost,127.0.0.1,[::1]`. Add an exact public hostname only when intentionally deploying payment pages. |
+| `APP_ENV` | `local` by default; `production` requires PostgreSQL, HTTPS and administrator login. Render's `RENDER=true` also enforces hosted safeguards. |
+| `SECRET_KEY` | Hosted/login-only stable random session secret, minimum 32 characters; server only. |
+| `ADMIN_USERNAME` | Single workspace administrator username for hosted/login mode. |
+| `ADMIN_PASSWORD_HASH` | Server-only Werkzeug default scrypt hash, never a raw password. See the private generator in `docs/RENDER.md`. |
 
-The backend explicitly loads the selected environment file; existing process environment values win. No secret belongs in a `VITE_` variable. `/api/health` reports readiness booleans/model/timezone, never keys. The public config exposes only sandbox readiness and the public client ID.
+Local runs explicitly load the selected environment file; existing process environment values win. Hosted containers use injected runtime variables and skip automatic dotenv loading unless a file was explicitly selected. No secret belongs in a `VITE_` variable. Protected `/api/health` reports readiness booleans/model/timezone, never keys; public `/healthz` is minimal liveness without database polling. The public config exposes only sandbox readiness and the public client ID.
 
 ### Gemini
 
@@ -120,6 +126,7 @@ Linux may need `npx playwright install-deps chromium` (administrator approval/sy
 - Request-details presentation is centralized in `src/paymentPresentation.js`; it formats dates/amounts but uses the backend's canonical payment status, timing, overdue-day count and attempt outcome unchanged. The existing React Router dependency's data-router provider enables `useBlocker` for edited-draft navigation protection without changing route paths or adding a dependency.
 - `backend/config.py`, `db.py`, `models.py`: explicit environment configuration, SQLite/PostgreSQL initialization and migrations, request validation/serialization.
 - `backend/routes.py`, `ai.py`, `paypal.py`, `payments.py`: JSON routes, Gemini adapter, sandbox REST adapter, persisted payment state machine.
+- `backend/auth.py`, `security.py`: optional local/required hosted login, revocable database-backed sessions, CSRF, origin checks and durable login/AI quotas. `wsgi.py`, `gunicorn.conf.py`, `Dockerfile`: production serving/build entry points.
 - `tests/`: focused mocked backend tests. `browser-tests/`: real Chromium checks of the local app, not live integrations.
 
 Management (local only): `GET /api/health`, `GET/POST /api/requests`, `GET /api/requests/:id`, `GET /api/dashboard`, `POST /api/requests/:id/message`, `GET/PUT /api/settings`. Details include factual guidance, recorded activity and verified confirmation when available. Message generation accepts `{"context_aware":true}` for safe AI-assisted wording (including paid thank-yous); the legacy message behavior is retained for compatibility. Settings use `{"freelancer_display_name":"Your chosen display name"}`; an empty string clears the name. The display name is exposed publicly only inside a verified paid confirmation; client identity and settings endpoints remain private.
@@ -152,15 +159,15 @@ Automatic retry is blocked after five hours, short of Orders v2's default six-ho
 
 ## Security boundaries and limitations
 
-- No authentication, tenant isolation, email, subscriptions, conversion, refund flow, webhooks, or background reconciliation. **Never use real client information or publicly publish the management app.**
-- Management API/pages require a loopback peer **and a localhost/loopback Host**, and reject forwarded requests. Public tokens are bearer links: anyone possessing one can see the service/amount/due date and initiate sandbox checkout; protect them. Client names and internal diagnostics are omitted publicly. There is no token expiry/revocation UI.
+- No tenant isolation, email, subscriptions, conversion, refund flow, webhooks, or background reconciliation. **Never use real client information.** Hosted login is a minimal single-admin safeguard, not production-grade identity management; no service is deployed automatically.
+- Local/default management API/pages require a loopback peer **and a localhost/loopback Host**, and reject forwarded requests. Hosted mode instead requires a server-validated login for both management pages and APIs, Secure/HttpOnly/SameSite cookies and CSRF on mutations. Public tokens remain bearer links: anyone possessing one can see the service/amount/due date and initiate sandbox checkout; protect them. Client names and internal diagnostics are omitted publicly. There is no token expiry/revocation UI.
 - No live-service fallback: Gemini/network/model errors remain errors; no fabricated output. Configured readiness is not a live connectivity test.
-- Immediate server-side verification supports the demo. If the browser disappears after approval, someone must reopen the token page and check status. Without webhooks/background jobs, later pending completion, refunds, reversals, and disputes will not automatically reconcile. No rate limiting; do not expose APIs without adding abuse controls.
+- Immediate server-side verification supports the demo. If the browser disappears after approval, someone must reopen the token page and check status. Without webhooks/background jobs, later pending completion, refunds, reversals, and disputes will not automatically reconcile. Hosted login/AI requests have durable global quotas; these are not comprehensive distributed bot protection. Respect free-tier limits and review public abuse risks before deployment.
 - SQLite serializes writes; this is one workspace, one persistent host, not a distributed/multi-user service. Edited messages are not saved. There is no request editing/deletion in this MVP.
 
 ## Local production build and deployment path
 
-The persistent-disk instructions below describe the SQLite option. Neon setup is documented separately in [docs/NEON.md](docs/NEON.md); changing databases does not authorize deployment or remove the local-only management restrictions.
+The commands below describe the **local SQLite option**, not Render. For the prepared free Render/Neon hosted path, use [docs/RENDER.md](docs/RENDER.md); it requires PostgreSQL and server-side login. Changing databases does not authorize deployment.
 
 To run the production frontend and backend together locally:
 
@@ -173,9 +180,9 @@ PUBLIC_BASE_URL=http://localhost:8000 gunicorn --bind 127.0.0.1:8000 --workers 1
 
 Open `http://localhost:8000`. This serves Vite's built assets from Flask, supports direct navigation to requests/token pages, and never enables a debugger.
 
-**Do not deploy automatically.** A realistic approved deployment is a single Linux VM/container with a persistent disk mounted at `/var/lib/freelance-flow`, `DATABASE_PATH=/var/lib/freelance-flow/freelance-flow.sqlite3`, one Gunicorn worker with four threads, server-only secrets, and an HTTPS reverse proxy. Use SQLite's backup API (or stop the app before copying the DB and WAL files together); test restore. Do not use ephemeral/serverless filesystems or multiple machines sharing SQLite. Rebuild/redeploy without replacing the persistent volume. Schema initialization is additive for this initial schema; future changes need explicit migrations.
+**Do not deploy automatically.** SQLite requires a persistent local disk and must not be used on Render's ephemeral Free filesystem. For a local/private persistent host, use SQLite's backup API (or stop the app before copying the DB and WAL files together); test restore. Do not use multiple machines sharing SQLite. Rebuild without replacing the volume. The free hosted path uses the existing Neon project instead, with additive initialization and no SQLite import/reset.
 
-If public **sandbox client pages** are approved later: set `PUBLIC_BASE_URL=https://payments.example.com`, add the exact hostname alongside the local defaults in `APP_HOSTS`, and expose **only** `/pay/*`, `/assets/*`, and `/api/public/*` at that hostname. Explicitly deny `/`, `/requests*`, `/api/requests*`, `/api/dashboard`, and `/api/health` in the proxy. Preserve the original Host and set `X-Forwarded-For`; management will reject it. Keep management accessed directly via localhost or an SSH localhost port forward, for example `ssh -L 8000:127.0.0.1:8000 user@server`, then open `http://localhost:8000`. Local management accepts its own validated localhost Origin and creates links using the configured public base; public hostnames are deliberately not management hosts. A fully remote shared management service requires authentication/authorization and a reviewed origin/security design first. Keep all payment integration sandbox-only.
+The older **local-only management plus public sandbox token pages** arrangement remains possible behind an explicitly reviewed proxy that denies management paths; it does not use hosted mode. On Render, do not rely on loopback/proxy headers to grant management access: use the new authenticated hosted configuration and exact HTTPS origin/host documented in `docs/RENDER.md`. Keep all payment integration sandbox-only.
 
 ## License
 

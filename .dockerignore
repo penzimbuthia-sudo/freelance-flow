@@ -1,0 +1,23 @@
+# Allowlist the build context: no dotenv files, databases, Git, snapshots or caches.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!index.html
+!vite.config.js
+!src/
+!src/**
+!public/
+!public/**
+!backend/
+!backend/**
+!requirements.txt
+!requirements.lock
+!wsgi.py
+!gunicorn.conf.py
+**/__pycache__/
+**/*.pyc
+**/.env*
+**/*.sqlite*
+**/*.db

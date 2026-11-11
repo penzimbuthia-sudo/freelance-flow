@@ -192,6 +192,7 @@ test('edited drafts are protected on links and browser history, without unnecess
   await expect(draft).toHaveValue(edited)
   await expect(draft).toBeFocused()
   await requestList.click()
+  await expect(dialog).toBeVisible() // Wait for React to open it before clicking its backdrop.
   await page.mouse.click(4, 4)
   await expect(dialog).toHaveCount(0)
   await expect(draft).toHaveValue(edited)

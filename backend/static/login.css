@@ -1,0 +1,10 @@
+:root { font-family: system-ui, sans-serif; color: #233541; background: #f3f7f6; }
+body { margin: 0; padding: 24px; }
+main { max-width: 420px; margin: 8vh auto; padding: 28px; background: white; border: 1px solid #d8e4e0; border-radius: 16px; }
+h1 { font-size: 1.7rem; }
+p { line-height: 1.6; }
+label { display: block; margin: 20px 0 8px; font-weight: 600; }
+input, button { box-sizing: border-box; width: 100%; padding: 12px; font: inherit; border: 1px solid #94aaa5; border-radius: 7px; }
+button { margin-top: 24px; background: #176955; color: white; cursor: pointer; font-weight: 600; }
+:focus-visible { outline: 3px solid #2682c4; outline-offset: 3px; }
+[role=alert] { color: #a12525; }

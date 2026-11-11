@@ -1,5 +1,4 @@
 from decimal import Decimal
-from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -11,7 +10,7 @@ from .db import get_db, now, transaction
 from .errors import AppError
 from .guidance import explain_payment
 from .models import create_request, find_request, require_public_available, serialize, status, today
-from .security import require_local_management
+from .security import rate_limit, require_allowed_origin, require_csrf, require_management
 from .settings import get_settings, require_display_name, save_settings
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -19,20 +18,13 @@ api = Blueprint("api", __name__, url_prefix="/api")
 
 @api.before_request
 def boundaries():
-    # Local-only management. Do NOT trust X-Forwarded-For from arbitrary callers.
+    # Token APIs stay public. Management requires local boundaries or hosted login.
     if not request.path.startswith("/api/public/"):
-        require_local_management()
+        require_management()
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("Origin")
-        base = urlsplit(current_app.config["PUBLIC_BASE_URL"])
-        allowed_origin = f"{base.scheme}://{base.netloc}"
-        allowed_origins = {allowed_origin}
-        if not request.path.startswith("/api/public/"):
-            # Local management remains usable through an SSH localhost tunnel
-            # even when shared payment links use an approved public origin.
-            allowed_origins.add(request.host_url.rstrip("/"))
-        if origin and origin not in allowed_origins:
-            raise AppError("origin_forbidden", "This request origin is not allowed.", 403)
+        require_allowed_origin()
+        if current_app.config["AUTH_REQUIRED"] and not request.path.startswith("/api/public/"):
+            require_csrf()
 
 
 def body():
@@ -49,7 +41,7 @@ def health():
                     "ai_configured": bool(current_app.config["GOOGLE_API_KEY"]),
                     "gemini_model": current_app.config["GEMINI_MODEL"],
                     "paypal_configured": payments.service().ready, "timezone": "Africa/Nairobi",
-                    "today": today().isoformat(), "management": "local-only, single workspace"})
+                    "today": today().isoformat(), "management": "authenticated single workspace" if current_app.config["AUTH_REQUIRED"] else "local-only, single workspace"})
 
 
 @api.get("/requests")
@@ -108,6 +100,8 @@ def dashboard():
 
 @api.post("/requests/<int:request_id>/message")
 def message(request_id):
+    if current_app.config["AUTH_REQUIRED"]:
+        rate_limit("ai", 6, 60)
     row = find_request(request_id)
     if row["archived_at"] and row["status"] != "paid":
         raise AppError("request_archived", "Restore this request before generating a payment message.", 409)

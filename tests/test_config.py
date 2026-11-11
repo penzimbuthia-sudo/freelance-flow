@@ -37,3 +37,25 @@ def test_missing_selected_environment_file_fails_before_database_initialization(
     monkeypatch.setenv("FF_ENV_FILE", str(tmp_path / "missing.env.local"))
     with pytest.raises(ValueError, match="No database was initialized"):
         configuration()
+
+
+def test_render_enforces_hosted_mode_even_when_app_env_is_local(monkeypatch, tmp_path):
+    selected = tmp_path / ".env.empty"
+    selected.write_text("")
+    monkeypatch.setenv("FF_ENV_FILE", str(selected))
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://workspace.example")
+    monkeypatch.delenv("APP_HOSTS", raising=False)
+    config = configuration()
+    assert config["HOSTED"] is True and config["AUTH_REQUIRED"] is True
+    assert config["TRUSTED_HOSTS"] == ["workspace.example"]
+
+
+def test_hosted_mode_does_not_implicitly_load_dotenv(monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text("DATABASE_URL=postgresql://fictional.invalid/do-not-load\n")
+    monkeypatch.setattr("backend.config.ROOT", tmp_path)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("FF_ENV_FILE", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert configuration()["DATABASE_URL"] == ""

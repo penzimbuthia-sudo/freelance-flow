@@ -4,24 +4,8 @@ import { PayPalProvider, PayPalOneTimePaymentButton } from '@paypal/react-paypal
 import ConfirmDialog from './ConfirmDialog'
 import { money, dueDate, paymentTime, paymentPresentation, hasDraftEdits, generationError } from './paymentPresentation'
 import useDraftNavigation from './useDraftNavigation'
+import { api, post } from './api'
 import './App.css'
-
-async function api(path, options = {}) {
-  let response
-  try {
-    response = await fetch(`/api${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } })
-  } catch {
-    throw new Error('Cannot reach the app. Check your connection and try again.')
-  }
-  const data = await response.json().catch(() => null)
-  if (!response.ok || !data) {
-    const error = new Error(data?.error?.message || 'The server could not complete this request. Please try again.')
-    error.code = data?.error?.code
-    throw error
-  }
-  return data
-}
-const post = (path, data = {}) => api(path, { method: 'POST', body: JSON.stringify(data) })
 
 function Icon({ name, size = 20 }) {
   const paths = {
@@ -81,6 +65,12 @@ function Brand() {
 }
 
 function Shell({ children }) {
+  const auth = useResource('/auth/session')
+  const [logoutError, setLogoutError] = useState('')
+  async function logout() {
+    try { await post('/auth/logout'); window.location.assign('/login') }
+    catch (error) { setLogoutError(error.message) }
+  }
   return <div className="app-shell">
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
@@ -93,7 +83,8 @@ function Shell({ children }) {
       <div className="sidebar-note"><span className="sandbox-dot" />Sandbox workspace<p>Made for a calmer payday.</p></div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><span>AI payment companion</span><span className="sandbox-label">PayPal sandbox · USD only</span></header>
+      <header className="topbar"><span>AI payment companion</span><span className="sandbox-label">PayPal sandbox · USD only</span>{auth.data?.auth_enabled && <button className="text-button" onClick={logout}>Sign out</button>}</header>
+      {logoutError && <ErrorNotice message={logoutError} />}
       <main id="main" tabIndex="-1">{children}</main>
       <footer className="workspace-footer">Dates and times use Africa/Nairobi (UTC+3).</footer>
     </div>
