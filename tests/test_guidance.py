@@ -123,3 +123,25 @@ def test_ambiguous_create_needs_status_check_not_new_payment(app, client, saved,
     facts = client.get(f'/api/requests/{saved["id"]}').json["guidance"]
     assert facts["message_purpose"] == "status_check"
     assert "check payment status" in facts["next_action"]
+
+
+def test_latest_attempt_uses_insertion_order_when_timestamps_tie(app, client, saved):
+    with app.app_context():
+        db = get_db()
+        for identity, state, diagnostic in [
+            ("z-older-attempt", "failed", "order_unavailable"),
+            ("a-newer-attempt", "uncertain", None),
+        ]:
+            db.execute(
+                """INSERT INTO payment_attempts
+                (id,request_id,create_key,capture_key,state,diagnostic,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (identity, saved["id"], f"create-{identity}", f"capture-{identity}",
+                 state, diagnostic, "2026-11-10T12:00:00+00:00", "2026-11-10T12:00:00+00:00"),
+            )
+        # Updating an older attempt must not make it appear to be the latest.
+        db.execute("UPDATE payment_attempts SET updated_at=? WHERE id=?", ("2026-11-11T12:00:00+00:00", "z-older-attempt"))
+    response = client.get(f'/api/requests/{saved["id"]}')
+    assert response.status_code == 200
+    assert response.json["guidance"]["attempt_outcome"] == "unconfirmed"
+    assert response.json["guidance"]["message_purpose"] == "status_check"

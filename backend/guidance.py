@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from . import models
-from .db import get_db
+from .db import attempt_order_column, get_db
 
 
 def explain_payment(row):
@@ -15,7 +15,7 @@ def explain_payment(row):
     timing = "paid" if paid else "overdue" if days else "today" if due == current_date else "future"
     amount = f'{row["currency"]} {Decimal(row["amount_cents"]) / 100:.2f}'
     attempt = get_db().execute(
-        "SELECT state, diagnostic, capture_started_at FROM payment_attempts WHERE request_id=? ORDER BY rowid DESC LIMIT 1",
+        f"SELECT state, diagnostic, capture_started_at FROM payment_attempts WHERE request_id=? ORDER BY {attempt_order_column()} DESC LIMIT 1",
         (row["id"],),
     ).fetchone()
     outcome = None

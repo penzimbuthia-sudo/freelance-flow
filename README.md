@@ -35,7 +35,7 @@ npm run dev
 
 Open **http://localhost:5173**, matching `PUBLIC_BASE_URL`. Vite forwards `/api` to Flask on port 5000; no permissive CORS is enabled. SQLite initializes automatically at `instance/freelance-flow.sqlite3`. Refreshing or restarting the app preserves requests and attempts. Restart Flask after changing configuration. Do not set `FLASK_DEBUG=1` for deployment.
 
-To use the **existing Neon PostgreSQL project** instead, follow [Neon setup and verification](docs/NEON.md). Flask uses synchronous Psycopg 3 through a server-only `DATABASE_URL`; React still calls Flask. SQLite remains available and is not automatically copied to or replaced by Neon. Live Neon verification is pending local credentials.
+To use the **existing Neon PostgreSQL project** instead, follow [Neon setup and verification](docs/NEON.md). Flask uses synchronous Psycopg 3 through a server-only `DATABASE_URL`; React still calls Flask. SQLite remains available and is not automatically copied to or replaced by Neon. Genuine Neon connection, Flask restart, settings, archive and timeline persistence checks passed; details and limitations are recorded in that guide.
 
 Optional fictional seed (only inserts if the database is empty):
 
